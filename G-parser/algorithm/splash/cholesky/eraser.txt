@@ -1,0 +1,80 @@
+address := pointer : sync
+size := int64
+tid := threadid : 4
+lid := lockid : 512
+status := int8
+thread2WLock = universe::map(tid, set(lid))
+thread2Lock = universe::map(tid, set(lid))
+addr2Lock = universe::map(address, universe::set(lid))
+addr2Thread = universe::map(address, set(tid))
+addr2type = universe::map(address, status)
+addr2size = map(address, size)
+onLock(tid t, lid l){
+    thread2WLock[t].add(l);
+    thread2Lock[t].add(l);
+}
+onUnlock(tid t, lid l) {
+   thread2WLock[t].remove(l);
+   thread2Lock[t].remove(l);
+}
+
+onRLock(tid t, lid l){
+    thread2Lock[t].add(l);
+}
+onLoad(address addr, tid t) {
+    if(!addr2Thread[addr].find(t) && addr2type[addr] != 0){
+            if(addr2type[addr] == 1){
+                addr2type[addr] = 2;
+
+            }
+            addr2Thread[addr].add(t);
+
+    }
+    if(addr2type[addr] > 1){
+        addr2Lock[addr] = addr2Lock[addr] & thread2Lock[t];
+    }
+}
+onStore(address addr, tid t) {
+    if(!addr2Thread[addr].find(t)){
+        addr2Thread[addr].add(t);
+
+        if(addr2type[addr] == 2){
+            addr2type[addr] = 3;
+        }
+        if(addr2type[addr] == 1){
+             addr2type[addr] = 3;
+        }
+        if(addr2type[addr] == 0){
+             addr2type[addr] = 1;
+        }
+    }else {
+
+        if(addr2type[addr] == 2){
+           addr2type[addr] = 3;
+
+        }
+    }
+    if(addr2type[addr] > 1){
+        addr2Lock[addr] = addr2Lock[addr] & thread2WLock[t] ;
+    }
+}
+onMalloc(address addr, size m){
+    addr2size[addr] = m;
+}
+onFree(address addr){
+    addr2Lock.remove_range(addr, addr2size[addr]);
+    addr2Thread.remove_range(addr, addr2size[addr]);
+    addr2type.remove_range(addr, addr2size[addr]);
+    addr2size.remove(addr);
+}
+insert after func pthread_mutex_lock call onLock($t, $1)
+insert before func pthread_mutex_unlock call onUnlock($t, $1)
+insert after func pthread_rwlock_wrlock call onLock($t, $1)
+insert before func pthread_rwlock_unlock call onUnlock($t, $1)
+insert after func pthread_rwlock_rdlock call onRLock($t, $1)
+insert after func malloc call onMalloc($r, $1)
+insert after func free call onFree($1)
+insert after LoadInst call onLoad($1, $t)
+insert after StoreInst call onStore($2, $t)
+
+

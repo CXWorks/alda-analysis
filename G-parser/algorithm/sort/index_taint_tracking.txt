@@ -1,0 +1,53 @@
+address := pointer
+size := int64
+label := int64
+value := int8
+
+
+addr2Label = universe::map(address, value)
+
+onRead(address addr, size si) {
+    addr2Label.set(addr, -1, si);
+}
+
+onStore(address ptr, label l) {
+  addr2Label[ptr] = l;
+}
+label onLoad(address ptr) {
+  return addr2Label[ptr];
+}
+
+label onBinaryOp(label l1, label l2) {
+    return l1|l2;
+}
+
+label onCast(label l1) {
+    return l1;
+}
+
+onWrite(address addr, size si) {
+    alda_assert(addr2Label.get(addr, si), 0);
+}
+
+label onGetElement(label l1, label l2, label l3, label l4, label l5, label l6, label l7, label l8) {
+    return l1|l2|l3|l4|l5|l6|l7|l8;
+}
+
+
+insert after func read call onRead($2, $r)
+
+insert after LoadInst call onLoad($1)
+
+insert after CastInst call onCast($1.m)
+
+insert after GetElementPtrInst call onGetElement($p.m)
+
+insert after BinaryOperator call onBinaryOp($1.m, $2.m)
+
+insert after StoreInst call onStore($2,$1.m)
+
+insert after func write call onWrite($2, $r)
+
+
+
+

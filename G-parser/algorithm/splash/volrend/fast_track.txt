@@ -1,0 +1,89 @@
+tid := threadid : 4
+fork_id := threadid : 4
+address := pointer : sync
+lid := lockid : 32
+lstatus := int16
+rstatus := int16
+wstatus := int16
+epoch := int16
+
+C = map(tid, map(tid, lstatus))
+L = map(lid, map(tid, lstatus))
+R = universe::map(address, map(tid, rstatus))
+W = universe::map(address, wstatus)
+RE = universe::map(address, epoch)
+
+onLock(tid t, lid l){
+    C[t] |= L[l];
+}
+onUnlock(tid t, lid l){
+   L[l] = C[t];
+   C[t][t]++;
+}
+
+onLoad(address addr, tid t){
+
+if(RE[addr] > 0){
+    if(t==RE[addr]){
+        if(R[addr][t] != C[t][t] && R[addr][t] <= C[t][t] && W[addr] <= C[t][t])
+            R[addr][t] = C[t][t];
+    }else{
+        if(W[addr] <= C[t][t]){
+            R[addr][t] = C[t][t];
+            R[addr][RE[addr]] = C[t][t];
+            RE[addr]=-1;
+        }
+    }
+}else if(RE[addr]==-1){
+    if(W[addr] <= C[t][t])
+        R[addr][t] = C[t][t];
+}else {
+    RE[addr] = t;
+}
+
+}
+
+
+
+onStore(address addr, tid t){
+    if(RE[addr] == 0){
+        if(R[addr][t] <= C[t][t] && W[addr] != C[t][t] && W[addr] <= C[t][t])
+                    W[addr] = C[t][t];
+    }else if(RE[addr]==-1){
+        if(W[addr] <= C[t][t] && R[addr] <= C[t]){
+            W[addr] = C[t][t];
+            R[addr][t] = 0;
+            RE[addr] = 0;
+        }
+    }else {
+        RE[addr] = t;
+    }
+}
+
+
+onCreate(tid t, fork_id f){
+C[f] |= C[t];
+C[t][t]++;
+}
+
+onDestroy(tid t, fork_id f){
+C[t] |= C[f];
+C[f][f]++;
+}
+
+
+insert after func pthread_create call onCreate($t, $1)
+
+insert after func pthread_join call onDestroy($t, $1)
+
+insert after func pthread_mutex_lock call onLock($t, $1)
+
+insert before func pthread_mutex_unlock call onUnlock($t, $1)
+
+insert after func pthread_rwlock_wrlock call onLock($t, $1)
+insert before func pthread_rwlock_unlock call onUnlock($t, $1)
+insert after func pthread_rwlock_rdlock call onLock($t, $1)
+
+insert after LoadInst call onLoad($1, $t)
+
+insert after StoreInst call onStore($2, $t)

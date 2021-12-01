@@ -1,0 +1,35 @@
+address := pointer
+value := int8
+size_ := int64
+
+addr2malloc = map(address, size_)
+addr2used = universe::map(address, value)
+
+onMalloc(address addr, size_ si){
+    addr2malloc[addr] = si;
+    addr2used.set(addr, 0, si);
+}
+
+onFree(address addr){
+    addr2used.set(addr, -1, addr2malloc[addr]);
+}
+
+onLoad(address addr, size_ n){
+
+alda_assert(addr2used.get(addr, n) , 0);
+
+}
+
+
+onStore(address addr, size_ n) {
+alda_assert(addr2used.get(addr, n) , 0);
+}
+
+
+insert after LoadInst call onLoad($1, sizeof($r))
+
+insert after StoreInst call onStore($2, sizeof($1))
+
+insert after func malloc call onMalloc($r, $1)
+
+insert after func free call onFree($1)

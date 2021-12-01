@@ -1,0 +1,821 @@
+libc_address := int64
+libc_size_ := int64
+libc_length := int32
+
+
+onVAStart(libc_address addr, libc_address tls, libc_length size) {
+    handle_va_start(addr, tls, size);
+}
+
+insert after VAStartInst call onVAStart($1, $r, $r)
+
+onVACopy(libc_address addr) {
+COMMON_INTERCEPTOR_WRITE_RANGE(addr, 24);
+}
+
+insert after VACopyInst call onVACopy($1)
+
+onStrLen(libc_size_ si,  libc_address s){
+    COMMON_INTERCEPTOR_READ_RANGE(s, si + 1);
+}
+
+insert after func strlen call onStrLen($r, $1)
+
+//
+
+onStrNDup(libc_address res, libc_address s, libc_size_ si){
+  COMMON_INTERCEPTOR_COPY_STRING(res, s, min(strlen(res) ,si));
+}
+
+insert after func strndup call onStrNDup($r, $1, $2)
+
+insert after func __strndup call onStrNDup($r, $1, $2)
+
+//
+
+onStrNCmp(libc_address s1, libc_address s2, libc_size_ si) {
+  COMMON_INTERCEPTOR_READ_RANGE(s1, min(strlen(s1) ,si));
+  COMMON_INTERCEPTOR_READ_RANGE(s2, min(strlen(s2) ,si));
+}
+
+onStrCmp(libc_address s1, libc_address s2) {
+  COMMON_INTERCEPTOR_READ_STRING(s1, strlen(s1));
+  COMMON_INTERCEPTOR_READ_STRING(s2, strlen(s2));
+}
+
+insert after func strcmp call onStrCmp($1, $2)
+
+insert after func strncmp call onStrNCmp($1, $2, $3)
+
+insert after func strspn call onStrCmp($1, $2)
+
+insert after func strcspn call onStrCmp($1, $2)
+
+//
+
+
+onStrStr(libc_address r, libc_address s1, libc_address s2) {
+    if(r)
+        COMMON_INTERCEPTOR_READ_STRING(s1, r - s1 + strlen(s2));
+    else
+    {
+        COMMON_INTERCEPTOR_READ_STRING(s1, strlen(s1) + 1);
+    }
+
+    COMMON_INTERCEPTOR_READ_RANGE(s2, strlen(s2) + 1);
+}
+
+insert after func strstr call onStrStr($r, $1, $2)
+
+//
+
+onStrChr(libc_address result,  libc_address s, libc_length c) {
+
+    if(result)
+    COMMON_INTERCEPTOR_READ_STRING(s,
+      (result - s) + 1);
+    else
+    {
+        COMMON_INTERCEPTOR_READ_STRING(s, strlen(s) + 1);
+    }
+}
+
+insert after func strchr call onStrChr($r, $1, $2)
+
+insert after func strchrnul call onStrChr($r, $1, $2)
+
+//
+
+onStrSpn(libc_size_ r, libc_address s1, libc_address s2) {
+    COMMON_INTERCEPTOR_READ_RANGE(s2, strlen(s2) + 1);
+    COMMON_INTERCEPTOR_READ_STRING(s1, r + 1);
+}
+
+insert after func strspn call onStrSpn($r, $1, $2)
+
+insert after func strcspn call onStrSpn($r, $1, $2)
+
+//
+
+onStrTok(libc_address str, libc_address delimiters) {
+
+    if (str != 0) {
+      COMMON_INTERCEPTOR_READ_RANGE(str, strlen(str) + 1);
+    }
+    COMMON_INTERCEPTOR_READ_RANGE(delimiters,
+                                  strlen(delimiters) + 1);
+}
+
+insert after func strtok call onStrTok($1, $2)
+
+//
+
+onStrPBrk(libc_address r,  libc_address s1, libc_address s2) {
+
+    COMMON_INTERCEPTOR_READ_RANGE(s2, strlen(s2) + 1);
+    if(r)
+        COMMON_INTERCEPTOR_READ_STRING(s1, r - s1 + 1);
+    else
+    {
+        COMMON_INTERCEPTOR_READ_STRING(s1, strlen(s1) + 1);
+    }
+}
+
+insert after func strpbrk call onStrPBrk($r, $1, $2)
+
+//
+
+onMemChr(libc_address res, libc_address s, libc_size_ n) {
+  if(res){
+    COMMON_INTERCEPTOR_READ_RANGE(s, ptr_dis(res,s) + 1);
+  }else
+  {
+      COMMON_INTERCEPTOR_READ_RANGE( s, n);
+  }
+}
+
+
+insert after func memchr call onMemChr($r, $1, $3)
+
+insert after func memrchr call onMemChr($r, $1, $3)
+
+//
+
+onMemCmp(libc_length res, libc_address a1, libc_address a2, libc_size_ size)  {
+    COMMON_INTERCEPTOR_READ_RANGE( a1, size);
+    COMMON_INTERCEPTOR_READ_RANGE( a2, size);
+}
+
+insert after func memcmp call onMemCmp($r, $1, $2, $3)
+
+//
+
+onMemMem(libc_address s1, libc_size_ len1, libc_address s2, libc_size_ len2) {
+    COMMON_INTERCEPTOR_READ_RANGE(s1, len1);
+    COMMON_INTERCEPTOR_READ_RANGE(s2, len2);
+}
+
+insert after func memmem call onMemMem($1, $2, $3, $4)
+
+//
+onAccept( libc_address p, libc_address res) {
+  if (p) handle_accept(res, p);
+}
+
+insert after func accept call onAccept($2, $3)
+
+insert after func accept4 call onAccept($2, $3)
+
+onRead2(libc_size_ res, libc_address p) {
+  if (res > 0) COMMON_INTERCEPTOR_WRITE_RANGE( p, res);
+}
+
+insert after func read call onRead2($r, $2)
+
+insert after func pread call onRead2($r, $2)
+
+insert after func pread64 call onRead2($r, $2)
+
+insert after func recv call onRead2($r, $2)
+
+insert after func recvfrom call onRead2($r, $2)
+
+onRecvMsg(libc_size_ res, libc_address p){
+    if (res > 0) handle_recvmsg( p, res);
+}
+
+insert after func recvmsg call onRecvMsg($r, $2)
+
+//
+
+onFRead(libc_size_ res,  libc_address p, libc_size_ size) {
+    if (res > 0) COMMON_INTERCEPTOR_WRITE_RANGE(p, res * size);
+}
+
+insert after func fread call onFRead($r, $1, $2)
+
+insert after func fread_unlocked call onFRead($r, $1, $2)
+//
+
+onReadV(libc_size_ res, libc_address iov, libc_length iovcnt) {
+  if (res > 0) write_iovec(iov, iovcnt, res);
+}
+
+insert after func readv call onReadV($r, $2, $3)
+
+insert after func preadv call onReadV($r, $2, $3)
+
+insert after func preadv64 call onReadV($r, $2, $3)
+
+//
+
+onWrite2(libc_size_ res, libc_address p) {
+  if (res > 0) COMMON_INTERCEPTOR_READ_RANGE(p, res);
+}
+
+insert after func write call onWrite2($r, $2)
+
+insert after func pwrite call onWrite2($r, $2)
+
+insert after func pwrite64 call onWrite2($r, $2)
+
+//
+
+onFWrite(libc_size_ res,  libc_address p, libc_size_ size) {
+    if (res > 0) COMMON_INTERCEPTOR_READ_RANGE(p, res * size);
+}
+
+insert after func fwrite call onFWrite($r, $1, $2)
+
+//
+
+onWriteV(libc_size_ res, libc_address iov, libc_length iovcnt) {
+    if (res > 0) read_iovec(iov, iovcnt, res);
+}
+
+insert after func writev call onWriteV($r, $2, $3)
+
+insert after func pwritev call onWriteV($r, $2, $3)
+
+insert after func pwritev64 call onWriteV($r, $2, $3)
+
+//
+
+onLocaltime(libc_address  res,  libc_address timep) {
+  if (res) {
+    COMMON_INTERCEPTOR_READ_RANGE(timep, sizeof(ull));
+    COMMON_INTERCEPTOR_WRITE_RANGE(res, sizeof(__sanitizer_tm));
+  }
+}
+
+insert after func localtime call onLocaltime($r, $1)
+
+insert after func localtime_r call onLocaltime($r, $1)
+
+insert after func gmtime call onLocaltime($r, $1)
+
+insert after func gmtime_r call onLocaltime($r, $1)
+
+//
+
+onCtime(libc_address res, libc_address timep) {
+  if (res) {
+    COMMON_INTERCEPTOR_READ_RANGE(timep, sizeof(ull));
+    COMMON_INTERCEPTOR_WRITE_RANGE(res, strlen(res)+1);
+  }
+}
+
+insert after func ctime call onCtime($r, $1)
+
+insert after func ctime_r call onCtime($r, $1)
+
+//
+
+onAsctime(libc_address res, libc_address tm) {
+  if (res) {
+    COMMON_INTERCEPTOR_READ_RANGE(tm, sizeof(__sanitizer_tm));
+    COMMON_INTERCEPTOR_WRITE_RANGE(res, strlen(res)+1);
+  }
+}
+
+insert after func asctime call onAsctime($r, $1)
+
+insert after func asctime_r call onAsctime($r, $1)
+
+//
+
+onMktime(libc_size_ res,  libc_address tm) {
+  COMMON_INTERCEPTOR_READ_RANGE(tm, sizeof(__sanitizer_tm));
+  if (res != -1) COMMON_INTERCEPTOR_WRITE_RANGE(tm, sizeof(__sanitizer_tm));
+}
+
+insert after func mktime call onMktime($r, $1)
+
+//
+
+onStrPTime(libc_address res, libc_address s, libc_address format, libc_address tm) {
+  if (format)
+    COMMON_INTERCEPTOR_READ_RANGE(format, strlen(format) + 1);
+if(res){
+    COMMON_INTERCEPTOR_READ_STRING(s, res - s);
+  if (tm) {
+    COMMON_INTERCEPTOR_WRITE_RANGE(tm, sizeof(__sanitizer_tm));
+  }
+}
+
+}
+
+insert after func strptime call onStrPTime($r, $1, $2, $3)
+
+//
+
+onFRExp(libc_address exp) {
+  COMMON_INTERCEPTOR_WRITE_RANGE(exp, sizeof(int));
+}
+
+insert after func frexp call onFRExp($2)
+
+//
+
+onFXStat(libc_length res, libc_address buf) {
+  if (!res)
+    COMMON_INTERCEPTOR_WRITE_RANGE(buf, sizeof(stat_t));
+}
+insert after func __fxstat64 call onFXStat($r, $3)
+
+insert after func __fxstat call onFXStat($r, $3)
+
+insert after func __xstat call onFXStat($r, $3)
+
+insert after func __xstat64 call onFXStat($r, $3)
+
+insert after func stat call onFXStat($r, $2)
+
+insert after func fstat call onFXStat($r, $2)
+
+insert after func stat64 call onFXStat($r, $2)
+
+insert after func fstat64 call onFXStat($r, $2)
+
+insert after func fstatat call onFXStat($r, $3)
+
+insert after func fstatat64 call onFXStat($r, $3)
+
+//
+
+on_obstack_begin(libc_length res,  libc_address *obstack) {
+  if (res) initialize_obstack(obstack);
+}
+
+insert after func _obstack_begin call on_obstack_begin($r, $1)
+
+on_obstack_newchunk(libc_address obstack) {
+    on_ob_newchunk(obstack);
+}
+
+insert after func _obstack_newchunk call on_obstack_newchunk($1)
+
+//
+
+onChdir(libc_address addr) {
+  if (addr)
+    COMMON_SYSCALL_PRE_READ_RANGE(addr, strlen(addr) + 1);
+}
+
+insert after func chdir call onChdir($1)
+
+insert after func chmod call onChdir($1)
+
+//
+
+onFDOpen(libc_address res, libc_address mode) {
+  COMMON_INTERCEPTOR_READ_RANGE(mode, strlen(mode) + 1);
+  if (res) unpoison_file(res);
+}
+
+insert after func fdopen call onFDOpen($r, $2)
+
+//
+
+onFGets(libc_address res) {
+  if (res)
+    COMMON_INTERCEPTOR_WRITE_RANGE(res, strlen(res) + 1);
+}
+
+insert after func fgets call onFGets($r)
+
+insert after func gets call onFGets($1)
+
+//
+
+onFOpen(libc_address res, libc_address path, libc_address mode) {
+  if (path) COMMON_INTERCEPTOR_READ_RANGE( path, strlen(path) + 1);
+  COMMON_INTERCEPTOR_READ_RANGE(mode, strlen(mode) + 1);
+  if (res) unpoison_file(res);
+}
+
+insert after func fopen call onFOpen($r, $1, $2)
+
+//
+
+onFReopen(libc_address res,  libc_address path, libc_address mode) {
+  if (path) COMMON_INTERCEPTOR_READ_RANGE(path, strlen(path) + 1);
+  COMMON_INTERCEPTOR_READ_RANGE(mode, strlen(mode) + 1);
+  if (res) unpoison_file(res);
+}
+
+insert after func freopen call onFReopen($r, $1, $2)
+
+//
+
+onGcvt(libc_address buf) {
+  COMMON_INTERCEPTOR_WRITE_RANGE(buf, strlen(buf) + 1);
+}
+
+insert after func gcvt call onGcvt($3)
+
+insert after func gethostname call onGcvt($1)
+
+//
+
+onGetcwd(libc_address res) {
+  if (res) COMMON_INTERCEPTOR_WRITE_RANGE(res, strlen(res) + 1);
+}
+
+insert after func getcwd call onGetcwd($r)
+
+//
+
+onGetenv(libc_address res) {
+  if (res) COMMON_INTERCEPTOR_WRITE_RANGE(res, strlen(res) + 1);
+}
+
+insert after func getenv call onGetenv($r)
+
+//
+
+onGettimeofday(libc_address tv, libc_address tz) {
+  if (tv)
+    COMMON_INTERCEPTOR_WRITE_RANGE(tv, 16);
+  if (tz)
+    COMMON_INTERCEPTOR_WRITE_RANGE(tz, 8);
+}
+
+insert after func gettimeofday call onGettimeofday($1, $2)
+
+onGettimespec(libc_address tv) {
+  if (tv)
+    COMMON_INTERCEPTOR_WRITE_RANGE(tv, 16);
+}
+
+insert after func clock_getres call onGettimespec( $2)
+
+insert after func clock_gettime call onGettimespec( $2)
+
+insert after func clock_settime call onGettimespec( $2)
+
+//
+
+onMkdir(libc_address path) {
+  COMMON_INTERCEPTOR_READ_RANGE(path, strlen(path) + 1);
+
+}
+
+insert after func mkdir call onMkdir($1)
+
+insert after func open call onMkdir($1)
+
+insert after func openat64 call onMkdir($2)
+
+insert after func rmdir call onMkdir($1)
+
+
+
+//
+
+onOpendir(libc_address path) {
+  COMMON_INTERCEPTOR_READ_RANGE(path, strlen(path) + 1);
+}
+
+insert after func opendir call onOpendir($1)
+
+onReaddir(libc_address res) {
+  on_read_dir(res);
+}
+
+insert after func readdir call onReaddir($r)
+
+//
+
+onPipe(libc_length res, libc_address pipefd) {
+  if (!res)
+    COMMON_INTERCEPTOR_WRITE_RANGE(pipefd, 8);
+}
+
+insert after func pipe call onPipe($r, $1)
+
+onGetAddressInfo(libc_address pipefd) {
+  if (pipefd)
+    COMMON_INTERCEPTOR_WRITE_RANGE(pipefd, 8);
+}
+
+insert after func getaddrinfo call onGetAddressInfo($4)
+
+insert after func xstrtoumax call onGetAddressInfo($4)
+
+//
+
+onSelect(libc_length res, libc_address inp,
+                     libc_address outp,
+                     libc_address exp, libc_address tvp){
+  if (res >= 0) {
+    if (inp) COMMON_INTERCEPTOR_WRITE_RANGE(inp, sizeof(__sanitizer___kernel_fd_set));
+    if (outp) COMMON_INTERCEPTOR_WRITE_RANGE(outp, sizeof(__sanitizer___kernel_fd_set));
+    if (exp) COMMON_INTERCEPTOR_WRITE_RANGE(exp, sizeof(__sanitizer___kernel_fd_set));
+    if (tvp) COMMON_INTERCEPTOR_WRITE_RANGE(tvp, sizeof(ull));
+  }
+}
+
+insert after func select call onSelect($r, $1, $2, $3, $4)
+
+//
+
+onStrCat(libc_address dest, libc_address src) {
+  COMMON_INTERCEPTOR_READ_RANGE(src, strlen(src) + 1);
+  COMMON_INTERCEPTOR_READ_RANGE(dest, strlen(dest) + 1);
+  COMMON_INTERCEPTOR_COPY_STRING(ptr_offset(dest , strlen(dest)), src, strlen(src));
+  COMMON_INTERCEPTOR_WRITE_RANGE(ptr_offset(dest , strlen(dest) + strlen(src)), 1);
+}
+
+insert before func strcat call onStrCat($1, $2)
+
+onStrNCat(libc_address dest, libc_address src, libc_size_ n) {
+  COMMON_INTERCEPTOR_READ_RANGE(dest, strlen(dest));
+  COMMON_INTERCEPTOR_COPY_STRING(ptr_offset(dest, strlen(dest)), src, strnlen(src, n));
+  COMMON_INTERCEPTOR_WRITE_RANGE(ptr_offset(dest , strlen(dest) + strnlen(src, n)), 1);
+}
+
+insert before func strncat call onStrNCat($1, $2, $3)
+
+//
+
+onStrCpy(libc_address dest, libc_address src) {
+  COMMON_INTERCEPTOR_READ_RANGE(src, strlen(src) + 1);
+  COMMON_INTERCEPTOR_COPY_STRING(dest, src, strlen(src));
+  COMMON_INTERCEPTOR_WRITE_RANGE(ptr_offset(dest , strlen(src)), 1);
+}
+
+insert before func strcpy call onStrCpy($1, $2)
+
+onPoxAlign(libc_address s, libc_size_ res) {
+    COMMON_INTERCEPTOR_WRITE_RANGE(s, 8);
+}
+
+insert after func posix_memalign call onPoxAlign($1, $3)
+//
+
+onStrError(libc_address res) {
+  if (res) COMMON_INTERCEPTOR_INITIALIZE_RANGE(res, strlen(res) + 1);
+}
+
+insert after func strerror call onStrError($r)
+
+//
+
+onStrftime(libc_size_ res, libc_address s) {
+  if (s) COMMON_INTERCEPTOR_WRITE_RANGE(s, res + 1);
+}
+
+insert after func strftime call onStrftime($r, $1)
+
+//
+
+onStrNCpy(libc_address dest, libc_address src, libc_size_ n) {
+  COMMON_INTERCEPTOR_COPY_STRING(dest, src, min(strnlen(src,n)+1,n));
+  COMMON_INTERCEPTOR_WRITE_RANGE(ptr_offset(dest,min(strnlen(src,n)+1,n)), n - min(strnlen(src,n)+1,n));
+}
+
+insert after func strncpy call onStrNCpy($1, $2, $3)
+
+//
+
+onStrTod(libc_address s, libc_address e) {
+    COMMON_INTERCEPTOR_READ_RANGE(s, strlen(s) + 1);
+    if(e)
+    COMMON_INTERCEPTOR_WRITE_RANGE(e, 8);
+}
+
+insert after func strtod call onStrTod($1, $2)
+
+insert after func strtof call onStrTod($1, $2)
+
+insert after func strtol call onStrTod($1, $2)
+
+insert after func strtoll call onStrTod($1, $2)
+
+onStrRChr(libc_address s) {
+    COMMON_INTERCEPTOR_READ_RANGE(s, strlen(s) + 1);
+}
+
+insert after func strrchr call onStrRChr($1)
+
+
+
+
+
+insert after func strtoul call onStrRChr($1)
+
+insert after func dlopen call onStrRChr($1)
+
+insert after func unlink call onStrRChr($1)
+
+insert after func chown call onStrRChr($1)
+
+insert after func chmod call onStrRChr($1)
+
+insert after func realpath call onStrRChr($r)
+
+onGetPwnam(libc_address s, libc_address r) {
+    COMMON_INTERCEPTOR_READ_RANGE(s, strlen(s) + 1);
+    if(r)
+        COMMON_INTERCEPTOR_WRITE_RANGE(r, 48);
+}
+
+insert after func getpwnam call onGetPwnam($1, $r)
+
+onGetGrnam(libc_address s, libc_address r) {
+    COMMON_INTERCEPTOR_READ_RANGE(s, strlen(s) + 1);
+    if(r)
+        COMMON_INTERCEPTOR_WRITE_RANGE(r, 32);
+}
+
+insert after func getgrnam call onGetGrnam($1, $r)
+
+onSigAction(libc_address o) {
+    if(o)
+        COMMON_INTERCEPTOR_WRITE_RANGE(o, 152);
+}
+
+insert after func sigaction call onSigAction($3)
+
+onEpollWait(libc_address o, libc_length res) {
+    if(o)
+        COMMON_INTERCEPTOR_WRITE_RANGE(o, 12 * res);
+}
+
+insert after func epoll_wait call onEpollWait($2, $r)
+
+onItTimer(libc_address o) {
+    if(o)
+        COMMON_INTERCEPTOR_WRITE_RANGE(o, 32);
+}
+
+insert after func getitimer call onItTimer($2)
+
+insert after func setitimer call onItTimer($3)
+
+onRlimit(libc_address o) {
+    if(o)
+        COMMON_INTERCEPTOR_WRITE_RANGE(o, 16);
+}
+
+insert after func getrlimit call onRlimit($2)
+
+insert after func getrlimit64 call onRlimit($2)
+
+onGlob(libc_address o) {
+    if(o)
+        COMMON_INTERCEPTOR_WRITE_RANGE(o, 72);
+}
+
+insert after func glob call onGlob($4)
+
+insert after func glob64 call onGlob($4)
+
+onTerminor(libc_address o) {
+    if(o)
+        COMMON_INTERCEPTOR_WRITE_RANGE(o, 60);
+}
+
+insert after func tcgetattr call onGlob($2)
+
+onRUsage(libc_address o) {
+    if(o)
+        COMMON_INTERCEPTOR_WRITE_RANGE(o, 144);
+}
+
+insert after func getrusage call onRUsage($2)
+
+onZlibflate(libc_address o) {
+    if(o)
+        COMMON_INTERCEPTOR_WRITE_RANGE(o, 112);
+}
+
+insert after func deflateInit_ call onZlibflate($1)
+
+insert after func deflateInit2_ call onZlibflate($1)
+
+insert after func inflateInit_ call onZlibflate($1)
+
+insert after func inflateInit2_ call onZlibflate($1)
+
+onGetNameinfo(libc_address p1, libc_address p2, libc_size_ s1, libc_size_ s2){
+if(p1)
+    COMMON_INTERCEPTOR_WRITE_RANGE(p1, s1);
+if(p2)
+    COMMON_INTERCEPTOR_WRITE_RANGE(p2, s2);
+}
+
+insert after func getnameinfo call onGetNameinfo($3, $5, $4, $6)
+
+onRename(libc_address s1, libc_address s2) {
+    COMMON_INTERCEPTOR_READ_RANGE(s1, strlen(s1) + 1);
+    COMMON_INTERCEPTOR_READ_RANGE(s2, strlen(s2) + 1);
+}
+
+insert after func rename call onRename($1, $2)
+
+onGetSockopt(libc_length res, libc_address opt, libc_address len){
+    if(!res)
+    handle_sockopt(opt, len);
+}
+
+insert after func getsockopt call onGetSockopt($r, $1, $2)
+
+insert after func getsockname call onGetSockopt($r, $2, $3)
+
+onUname(libc_address o) {
+    if(o)
+        COMMON_INTERCEPTOR_WRITE_RANGE(o, 290);
+}
+
+insert after func uname call onUname($1)
+
+onMmap(libc_address o, libc_size_ len){
+    handle_mmap(o, len);
+}
+
+insert after func mmap call onMmap($r, $2)
+
+insert after func mmap64 call onMmap($r, $2)
+
+//
+
+onTime(libc_size_ res, libc_address t) {
+    on_time(res, t);
+}
+
+insert after func time call onTime($r, $1);
+
+//
+
+onWaitpid(libc_length res, libc_address status) {
+  if (res != -1 && status)
+    COMMON_INTERCEPTOR_WRITE_RANGE(status, sizeof(int));
+}
+
+insert after func waitpid call onWaitpid($r, $2);
+
+//
+
+onScanf(libc_length n, libc_address file, libc_address format, ...) {
+  scanf_wrapper(n, format, ap);
+}
+
+insert after func __isoc99_fscanf call onScanf($r, $p)
+
+insert after func __isoc99_sscanf call onScanf($r, $p)
+
+onPrintf(libc_address format, ...) {
+    printf_common(format, ap);
+}
+
+insert after func printf call onPrintf($p)
+
+onFPrintf(libc_address file, libc_address format, ...){
+printf_common(format, ap);
+}
+
+insert after func fprintf call onFPrintf($p)
+
+onSPrintf(libc_length res, libc_address file, libc_address format, ...){
+printf_common(format, ap);
+if(res>=0)
+COMMON_INTERCEPTOR_WRITE_RANGE(file, res+1);
+}
+
+insert after func sprintf call onSPrintf($r, $p)
+
+onSNPrintf(libc_length res, libc_address file, libc_size_ n, libc_address format, ...){
+printf_common(format, ap);
+if(res>=0)
+COMMON_INTERCEPTOR_WRITE_RANGE(file, min(res+1, n));
+}
+
+insert after func snprintf call onSNPrintf($r, $p)
+
+onVFPrintf(libc_address file, libc_address format, libc_address v){
+printf_common(format, v);
+}
+
+insert before func vfprintf call onVFPrintf($p)
+
+onVSPrintf(libc_address file, libc_address format, libc_address v){
+printf_common(format, v);
+}
+
+insert before func vsprintf call onVSPrintf( $p)
+
+onVSNPrintf(libc_address file, libc_length siz, libc_address format, libc_address v){
+printf_common(format, v);
+}
+
+insert before func vsnprintf call onVSNPrintf( $p)
+
+onPostvsprintf(libc_address file){
+if(file)
+COMMON_INTERCEPTOR_WRITE_RANGE(file, strlen(file)+1);
+}
+insert after func vsprintf call onPostvsprintf($1)
+
+insert after func vsnprintf call onPostvsprintf($1)

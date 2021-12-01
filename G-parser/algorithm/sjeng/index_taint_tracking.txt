@@ -1,0 +1,59 @@
+address := ptr
+size_ := ulong
+labels := uint
+
+
+addr2Label = universe::map(address, labels)
+
+onRead(address addr1, address addr2, address addr3, address addr4, address addr5, address addr6, address addr7) := %{
+if(counter++%3==0){
+    addr2Label[addr3] = 1;
+    addr2Label[addr4] = 1;
+    addr2Label[addr5] = 1;
+    addr2Label[addr6] = 1;
+    addr2Label[addr7] = 1;
+}
+}%
+
+
+labels onLoad(labels l1, address addr) := %{
+    return addr2Label[addr] | l1;
+}%
+
+onStore(labels l1, labels l2, address addr) := %{
+    addr2Label[addr] = l1 | l2;
+}%
+
+labels onBinaryOp(labels l1, labels l2) := %{
+    return l1|l2;
+}%
+
+labels onCast(labels l1) := %{
+    return l1;
+}%
+
+onWrite(address addr, size_ si) := %{
+    addr2Label.check_range(addr, si, 0);
+}%
+
+labels onGetElement(labels l1, labels l2, labels l3, labels l4, labels l5, labels l6, labels l7, labels l8) := %{
+    return l1|l2|l3|l4|l5|l6|l7|l8;
+}%
+
+
+insert after func __isoc99_sscanf call onRead($p)
+
+$.m := insert after LoadInst call onLoad($1.m, $1)
+
+$.m := insert after CastInst call onCast($1.m)
+
+$.m := insert after GetElementPtrInst call onGetElement($p.m)
+
+$.m := insert after BinaryOperator call onBinaryOp($1.m, $2.m)
+
+insert after StoreInst call onStore($1.m, $2.m, $2)
+
+insert after func fwrite call onWrite($1, $r)
+
+
+

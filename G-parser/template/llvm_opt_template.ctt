@@ -1,0 +1,1081 @@
+#raw
+#include <iostream>
+#include <cassert>
+#include <unordered_set>
+#include "llvm/Support/raw_ostream.h"
+#include "llvm/Bitcode/BitcodeReader.h"
+#include "llvm/Bitcode/BitcodeWriter.h"
+#include "llvm/IR/Function.h"
+#include "llvm/IR/Module.h"
+#include "llvm/Support/CommandLine.h"
+#include "llvm/Support/MemoryBuffer.h"
+#include "llvm/Support/raw_os_ostream.h"
+#include "llvm/Pass.h"
+#include "llvm/IR/Instructions.h"
+#include "llvm/IR/IntrinsicInst.h"
+#include "llvm/IR/Constant.h"
+#include "llvm/IR/Constants.h"
+#include "llvm/IR/IRBuilder.h"
+#include "llvm/Transforms/Utils/Cloning.h"
+#include "llvm/Transforms/Utils/Local.h"
+#end raw
+#define built_in_func_num  (7 + $meta['total'])
+
+using namespace llvm;
+using namespace std;
+
+typedef unsigned char uchar;
+
+typedef unsigned int uint;
+
+typedef unsigned short ushort;
+
+typedef unsigned long ulong;
+
+typedef unsigned long long ull;
+
+typedef uint opcode;
+
+typedef char int8;
+typedef short int16;
+typedef int int32;
+typedef long long int64;
+
+class EraserFunctionInstr: public FunctionPass{
+protected:
+    string math_funcs[21] = {"llvm.acos", "llvm.asin", "llvm.atan", "llvm.atan2", "llvm.cos", "llvm.cosh", "llvm.sin",
+    "llvm.sinh", "llvm.tanh", "llvm.exp", "llvm.frexp", "llvm.idexp", "llvm.log", "llvm.log10", "llvm.modf", "llvm.pow",
+     "llvm.sqrt", "llvm.ceil", "llvm.fabs", "llvm.floor", "llvm.fmod"};
+    map<string, int> tt_func;
+    raw_os_ostream rawOstream;
+    Function* initEraser;
+    Function* destoryEraser;
+    Function* paramStack;
+    Function* retStack;
+    Function* byvalStack;
+    Function* vaargStack;
+    Function* vasizeStack;
+#for $f in $meta['functions']
+
+Function* $f['function']['name'];
+
+#if 'switch' in $f
+#for $k, $v in $f['switch_funcs'].items()
+Function* $v;
+#end for
+#end if
+
+#end for
+
+    bool is_tt_func(StringRef s) {
+        for(auto it = tt_func.begin(); it != tt_func.end(); it++){
+            if (s.contains_lower(it->first)){
+                return true;
+            }
+        }
+        return false;
+    }
+
+    string built_in_func_name[built_in_func_num] = {
+        "initEraser"
+        , "destoryEraser"
+        , "get_param_stack"
+        , "get_ret_stack"
+        , "get_byval_stack"
+        , "get_vaarg_stack"
+        , "get_vasize_stack"
+        #for $f in $meta['functions']
+        , "$f['function']['name']"
+        #if 'switch' in $f
+        #for $k, $v in $f['switch_funcs'].items()
+        , "$v"
+        #end for
+        #end if
+        #end for
+    };
+public:
+    static char ID;
+    LLVMContext* context;
+    map<StringRef, vector<Value*>> param_map;
+    map<StringRef, Value*> ret_map;
+    map<StringRef, map<CallInst*, vector<StoreInst*>>> func_call_meta;
+    map<StringRef, map<CallInst*, LoadInst*>> func_call_result_meta;
+    map<StringRef, map<ReturnInst*, StoreInst*>> func_ret_meta;
+    map<StringRef, vector<Instruction*>> insts;
+    map<StringRef, CallInst*> func_call_byval;
+    vector<CallInst*> to_be_inline;
+    map<StringRef, AllocaInst*> func_va_tls;
+
+    EraserFunctionInstr() : rawOstream(cout), FunctionPass(ID) {
+        for (string s:math_funcs){
+            tt_func[s] = 1;
+        }
+    }
+
+    StringRef get_func_name(CallInst* callInst) {
+            if (callInst->getCalledFunction()!= nullptr){
+                return callInst->getCalledFunction()->getName();
+            }else {
+
+                Value* v = callInst->getCalledValue();
+                    if(auto fcn = dyn_cast<Function>(v->stripPointerCasts())){
+                        return fcn->getName();
+                    }
+                return "";
+            }
+        }
+
+    bool should_be_target(Function& F){
+        for (int i = 0; i < built_in_func_num; ++i) {
+            if (F.getName().contains(built_in_func_name[i])||F.getName().startswith("_Z") || F.getName().contains("llvm.") || F.getBasicBlockList().empty() || F.getName().contains("cxx_gen.cpp") || F.getName().startswith("__"))
+                return false;
+        }
+        return true;
+    }
+
+    unsigned int type_encode(Type* v, int shift = 0){
+        if(shift>=28)
+            return 0;
+        unsigned int ans = v->getTypeID();
+        if(ans == 11){
+            switch (v->getIntegerBitWidth()){
+                case 8:
+                    ans = 17;
+                    break;
+                case 16:
+                    ans = 18;
+                    break;
+                case 32:
+                    ans = 19;
+                    break;
+                case 64:
+                    ans = 20;
+                    break;
+            }
+        }
+        ans = ans<<shift;
+        if(ans == Type::TypeID::PointerTyID)
+            return ans | type_encode(v->getPointerElementType(), shift + 5);
+        else
+            return ans;
+    }
+
+#if $has_return
+
+    void do_taint_tracking(Module& M){
+        for(auto it = M.begin(); it != M.end(); it++){
+            Function& F = *it;
+            if(should_be_target(F))
+                modify_single_function(F);
+        }
+    }
+
+    inline Type* get_meta_data_type(){
+        return IntegerType::get(*context, sizeof($meta['return_type'])*8);
+    }
+
+    inline Value* get_meta_data_default(){
+        return ConstantInt::get(get_meta_data_type(), 0);
+    }
+
+    inline Value* get_meta_data_poison_default(){
+        return ConstantInt::get(get_meta_data_type(), -1);
+    }
+
+    void modify_single_function(Function& F){
+        vector<CallInst*> callInsts;
+        vector<ReturnInst*> retInsts;
+        for (auto bb = F.begin();bb != F.end();bb++) {
+            for (auto inst = bb->begin(); inst != bb->end(); inst++) {
+                if (auto I = dyn_cast<CallInst>(inst)) {
+                    StringRef funcname = get_func_name(I);
+                    if(funcname.contains("llvm."))
+                        continue;
+                    callInsts.push_back(I);
+                } else if(auto I = dyn_cast<ReturnInst>(inst)){
+                    retInsts.push_back(I);
+                }
+            }
+        }
+        Instruction& p = *F.getEntryBlock().getFirstInsertionPt();
+        ArrayRef<Value*> empty;
+        CallInst* callRet = CallInst::Create(retStack, empty, "", &p);
+        ret_map[F.getName()] = callRet;
+        //va arg
+        CallInst* callVASize = CallInst::Create(vasizeStack, empty, "", &p);
+        //get meta data
+        CallInst* callParam = CallInst::Create(paramStack, empty, "", callRet);
+        vector<Value*> param_meta;
+        for(int i=0;i<F.getFunctionType()->getNumParams(); i++){
+            SmallVector<Value*, 1> v;
+            v.push_back(ConstantInt::get(IntegerType::get(*context, 32), i));
+            GetElementPtrInst* loc = GetElementPtrInst::CreateInBounds(callParam, v,"", callRet);
+            LoadInst* loadInst = new LoadInst(loc, "", callRet);
+            param_meta.push_back(loadInst);
+        }
+        param_map[F.getName()] = param_meta;
+        CallInst* callByval = CallInst::Create(byvalStack, empty, "", callRet);
+        func_call_byval[F.getName()] = callByval;
+        //
+        map<CallInst*, vector<StoreInst*>> local_func_call_meta;
+        map<CallInst*, LoadInst*> local_func_call_result_meta;
+        for(CallInst* callInst : callInsts){
+            vector<StoreInst*> v;
+            int byval_counter = 0;
+            int num = callInst->getNumArgOperands();
+            for(int i=0;i<num;i++){
+                SmallVector<Value*, 1> varg;
+                varg.push_back(ConstantInt::get(IntegerType::get(*context, 32), i));
+                GetElementPtrInst* loc = GetElementPtrInst::CreateInBounds(callParam, varg,"", callInst);
+                StoreInst* storeInst = new StoreInst(get_meta_data_default(), loc, callInst);
+                v.push_back(storeInst);
+                if(callInst->paramHasAttr(i, Attribute::ByVal) && callInst->getArgOperand(i)->getType()->isPointerTy()){
+                    SmallVector<Value*, 1> byval_arg;
+                    byval_arg.push_back(ConstantInt::get(IntegerType::get(*context, 32), byval_counter++));
+                    Value* casted = CastInst::CreateBitOrPointerCast(callInst->getArgOperand(i), PointerType::get(IntegerType::get(*context,8),0), "", callInst);
+                    GetElementPtrInst* byval_loc = GetElementPtrInst::CreateInBounds(callByval, byval_arg,"", callInst);
+                    StoreInst* storeInst = new StoreInst(casted, byval_loc, callInst);
+                }
+            }
+            StoreInst* storeInst = new StoreInst(get_meta_data_default(), callRet, callInst);
+            local_func_call_meta[callInst] = v;
+            LoadInst* loadInst = nullptr;
+            if(callInst->getNextNode()!= nullptr)
+                loadInst = new LoadInst(callRet, "", callInst->getNextNode());
+            else
+                loadInst = new LoadInst(callRet, "", callInst->getParent());
+            local_func_call_result_meta[callInst] = loadInst;
+            if(callInst->getFunctionType()->isFunctionVarArg()){
+                Constant *OverflowSize =
+                        ConstantInt::get(IntegerType::get(*context, 64), callInst->getNumArgOperands() - callInst->getFunctionType()->getFunctionNumParams());
+                StoreInst* storeInst = new StoreInst(OverflowSize, callVASize, callInst);
+            }
+        }
+        func_call_meta[F.getName()] = local_func_call_meta;
+        func_call_result_meta[F.getName()] = local_func_call_result_meta;
+        //va arg, function site
+        if(F.isVarArg()){
+            IRBuilder<> irb(&p);
+            LoadInst* vasize = new LoadInst(callVASize, "", &p);
+            AllocaInst* allocaInst = new AllocaInst(get_meta_data_type(), 0, vasize, 8,"",&p);
+            SmallVector<Value*, 1> v;
+            v.push_back(ConstantInt::get(IntegerType::get(*context, 32), F.getFunctionType()->getNumParams()));
+            GetElementPtrInst* loc = GetElementPtrInst::CreateInBounds(callParam, v,"", &p);
+            Value* size = irb.CreateMul(vasize, ConstantInt::get(IntegerType::get(*context, 64), sizeof($meta['return_type'])));
+            irb.CreateMemCpy(allocaInst, loc, size,8);
+            func_va_tls[F.getName()] = allocaInst;
+        }
+        //
+        map<ReturnInst*, StoreInst*> local_func_ret_meta;
+        for(ReturnInst* returnInst: retInsts){
+            local_func_ret_meta[returnInst] = new StoreInst(get_meta_data_default(), callRet, returnInst);
+        }
+        func_ret_meta[F.getName()] = local_func_ret_meta;
+    }
+#end if
+
+    bool doInitialization(Module &M) {
+        Module::FunctionListType& functionListType = M.getFunctionList();
+        context = &M.getContext();
+        for(auto func = functionListType.begin(); func!=functionListType.end();func++){
+            if(func->getName().contains("initEraser")){
+                initEraser = M.getFunction(func->getName());
+            }
+            if(func->getName().contains("destoryEraser")){
+                destoryEraser = M.getFunction(func->getName());
+            }
+            if(func->getName().contains("get_param_stack")){
+                paramStack = M.getFunction(func->getName());
+            }
+            if(func->getName().contains("get_ret_stack")){
+                retStack = M.getFunction(func->getName());
+            }
+            if(func->getName().contains("get_byval_stack")){
+                byvalStack = M.getFunction(func->getName());
+            }
+            if(func->getName().contains("get_va_arg")){
+                vaargStack = M.getFunction(func->getName());
+            }
+            if(func->getName().contains("get_va_size")){
+                vasizeStack = M.getFunction(func->getName());
+            }
+            #for $f in $meta['functions']
+                        if(func->getName().contains("$f['function']['name']")){
+                            $f['function']['name'] = M.getFunction(func->getName());
+                        }
+                        #if 'switch' in $f
+                        #for $k, $v in $f['switch_funcs'].items()
+                        if(func->getName().contains("$v")){
+                            $v = M.getFunction(func->getName());
+                        }
+                        #end for
+                        #end if
+            #end for
+        }
+        for(auto it = M.begin(); it != M.end(); it++){
+            Function& F = *it;
+            if(should_be_target(F)){
+                removeUnreachableBlocks(F);
+                findInst(F);
+            }
+        }
+        #if $has_return
+        do_taint_tracking(M);
+        #end if
+
+        return true;
+    }
+
+
+
+
+    bool runOnFunction(Function &F) override {
+        LLVMContext & llvmContext = F.getContext();
+        for (int i = 0; i < built_in_func_num; ++i) {
+            if(!should_be_target(F))
+                return true;
+        }
+
+        //instr for all memory access
+        if(F.getBasicBlockList().size() != 0){
+            instrLLVMInst(F);
+            cout<<F.getName().str()<<endl;
+        }
+        for(CallInst* call : to_be_inline){
+            InlineFunctionInfo ifi;
+            InlineFunction(call, ifi);
+        }
+        to_be_inline.clear();
+        if(F.getName().equals("main")){
+            //init eraser
+            Instruction* firstInst = &F.getEntryBlock().front();
+            Instruction* lastInst = &F.getBasicBlockList().back().back();
+            if(auto lastI = dyn_cast<UnreachableInst>(lastInst)){
+                lastInst = lastInst->getPrevNode();
+            }
+            Instruction * callInitEarser = CallInst::Create(initEraser,"",firstInst);
+            #for $f in $meta['globalInst']
+            #if $f['location'] == 'VAR'
+            for (auto var = F.getParent()->global_begin(); var != F.getParent()->global_end() ; ++var) {
+                GlobalVariable& scalar = (*var);
+                if(scalar.getName().startswith_lower("llvm") || scalar.getName().startswith_lower("_"))
+                    continue;
+
+                vector<Value*> args;
+                #for $param in $f['function']['params']
+                #if $param['type'] == 'pointer'
+                Instruction* inst_$param['name'] = CastInst::Create(Instruction::CastOps::PtrToInt, &scalar,
+                                                             Type::getInt64Ty(llvmContext),"",firstInst);
+                #else if $param['type'] == 'sizeof'
+                int real_size_$param['name'] = F.getParent()->getDataLayout().getTypeAllocSize(scalar.getType());
+                Value*  inst_$param['name'] = ConstantInt::get(Type::getInt64Ty(llvmContext), real_size_$param['name']);
+                #end if
+                args.push_back(inst_$param['name']);
+                #end for
+
+                ArrayRef<Value*> args_arr(args);
+                CallInst* callonAlloc = CallInst::Create($f['function']['name'], args_arr,"",firstInst);
+            }
+            #end if
+            #end for
+            Instruction * callDestoryEarser = CallInst::Create(destoryEraser,"", lastInst);
+        }
+        return true;
+    }
+
+
+    void findInst(Function& F){
+        vector<Instruction*> to_be_instr;
+        for (BasicBlock *bb : depth_first(&F.getEntryBlock())){
+            for(auto inst = bb->begin();inst != bb->end();inst++){
+
+                if( auto I = dyn_cast<PHINode>(inst)){
+                    to_be_instr.push_back(I);
+                }
+                else if( auto I = dyn_cast<ReturnInst>(inst)){
+                    to_be_instr.push_back(I);
+                }
+                #for $f in $meta['llvmInst']
+                #if $f['location'] != 'ReturnInst' and $f['location'] != 'PHINode' and $f['location'] != 'CallInst'
+                else if( auto I = dyn_cast<$f['location']>(inst)){
+                    to_be_instr.push_back(I);
+                }
+                #end if
+                #end for
+                else if(auto I = dyn_cast<CallInst>(inst)){
+                    to_be_instr.push_back(I);
+                }
+            }
+        }
+        insts[F.getName()] = to_be_instr;
+    }
+
+    void instrLLVMInst(Function& F){
+        LLVMContext & llvmContext = F.getContext();
+        vector<Instruction*> to_be_instr;
+        if(insts.count(F.getName()))
+            to_be_instr = insts[F.getName()];
+        else
+            return;
+        int half = 0;
+        #if $has_return
+        map<Value*, Value*> taint_tracking_map;
+        if(param_map.count(F.getName())) {
+            for(int i=0;i<param_map[F.getName()].size();i++){
+                taint_tracking_map[&(*(F.arg_begin() + i))] = param_map[F.getName()][i];
+            }
+        }
+        #end if
+        #for $f in $meta['llvmInst']
+        #if 'MemCpy' in $f['location']
+        Instruction* byvalPoint = func_call_byval[F.getName()];
+        Instruction* point = byvalPoint->getNextNode();
+        int byval_counter = 0;
+        for(auto it=F.arg_begin(); it!=F.arg_end();it++){
+            if(it->hasByValAttr() && it->getType()->isPointerTy()){
+                SmallVector<Value*, 1> byval_arg;
+                byval_arg.push_back(ConstantInt::get(IntegerType::get(*context, 32), byval_counter++));
+                GetElementPtrInst* byval_loc = GetElementPtrInst::CreateInBounds(byvalPoint, byval_arg,"", point);
+                LoadInst* loadInst = new LoadInst(byval_loc, "", point);
+                Value* casted = CastInst::CreateBitOrPointerCast(it, $f['function']['name']->getFunctionType()->getFunctionParamType(0), "", point);
+                Value* casted2 = CastInst::CreateBitOrPointerCast(loadInst, $f['function']['name']->getFunctionType()->getFunctionParamType(1), "", point);
+                SmallVector<Value*, 3> memcpy_args;
+                memcpy_args.push_back(casted);
+                memcpy_args.push_back(casted2);
+                memcpy_args.push_back(ConstantInt::get(IntegerType::get(*context, 64), F.getParent()->getDataLayout().getTypeAllocSize(it->getType()->getPointerElementType())));
+                CallInst* callonMemCpy = CallInst::Create($f['function']['name'], memcpy_args,"",point);
+            }
+        }
+        #end if
+        #end for
+        int binop_in = 0;
+        //second round loop to make changes
+        for(Instruction* inst : to_be_instr){
+        binop_in = 0;
+            #if $has_return
+            if( auto I = dyn_cast<PHINode>(inst)){
+                int num = I->getNumIncomingValues();
+                PHINode *phiNode = PHINode::Create(get_meta_data_type(), num, "", I);
+                for (int i = 0; i < num; i++) {
+                    if (taint_tracking_map.count(I->getIncomingValue(i))&& taint_tracking_map[I->getIncomingValue(i)] !=  nullptr) {
+                        phiNode->addIncoming(taint_tracking_map[I->getIncomingValue(i)], I->getIncomingBlock(i));
+                    } else {
+                        phiNode->addIncoming(get_meta_data_default(), I->getIncomingBlock(i));
+                    }
+
+                }
+                taint_tracking_map[I] = phiNode;
+            }
+            if( auto I = dyn_cast<ReturnInst>(inst)){
+                if(I->getReturnValue() == nullptr || I->getReturnValue()->getType()->isVoidTy() || !func_ret_meta.count(F.getName())){
+
+                }else {
+                    Value* ret = I->getReturnValue();
+                    if(taint_tracking_map.count(ret)){
+                        func_ret_meta[F.getName()][I]->setOperand(0, taint_tracking_map[ret]);
+                    }
+                }
+            }
+
+            if(auto I = dyn_cast<CallInst>(inst)){
+            if(I->getCalledFunction()!=nullptr && (I->getCalledFunction()->getName().contains("llvm.dbg")
+                                    || I->getCalledFunction()->getName().contains("llvm.lifetime") || I->getCalledFunction()->getName().contains("llvm.va"))){}
+            else{
+                    auto it = I->arg_begin();
+                    vector<StoreInst*> v = func_call_meta[F.getName()][I];
+                    int i=0;
+                    for(auto st = v.begin(); st != v.end(); st++, it++){
+                        if (taint_tracking_map.count((*it).get())) {
+                            (*st)->setOperand(i, taint_tracking_map[(*it).get()]);
+                        }
+                    }
+                    //do taint after function call
+                    if(I->getNumUses()){
+                        if(func_call_result_meta[F.getName()].count(I))
+                            taint_tracking_map[inst] = func_call_result_meta[F.getName()][I];
+                        else
+                            taint_tracking_map[inst] = get_meta_data_default();
+                    }
+                   }
+            }
+            #end if
+            #for $f in $meta['llvmInst']
+            #if $f['location'] == 'BinaryOperator'
+            #if 'extra_loc_constraint' in $f
+            if( auto II = dyn_cast<$f['location']>(inst) && ((BinaryOperator*)inst)->getOpcode() == $f['extra_loc_constraint']){
+                binop_in = 1;
+                auto I = dyn_cast<BinaryOperator>(inst);
+            #else
+            if( auto II = dyn_cast<$f['location']>(inst) && !binop_in){
+                auto I = dyn_cast<BinaryOperator>(inst);
+            #end if
+            #else
+            if( auto I = dyn_cast<$f['location']>(inst)){
+            #end if
+                #if $f['shift'] == 'after'
+                Instruction* point= I->getNextNode();
+                #else
+                Instruction* point= I;
+                #end if
+                vector<Value*> args;
+                int num = 0;
+                #for $param in $f['params']
+                #if 'idx' not in $param
+                #continue
+                #end if
+                #if  $param['idx'] == 'p'
+                if($f['function']['name']->isVarArg()){
+                    for(int i=0;i<I->getNumOperands();i++){
+                            num = args.size();
+                            Value* arg_$param['idx'] = I->getOperand(i);
+                            #if 'mapping' not in $param
+                            if("$param['type']" == "type"){
+                                args.push_back(ConstantInt::get($f['function']['name']->getFunctionType()->getFunctionParamType(num), type_encode(arg_$param['idx']->getType())));
+                            }else if("$param['type']" == "sizeof"){
+                                if("$f['location']"=="AllocaInst"){
+                                    if(((AllocaInst*)I)->isArrayAllocation()){
+                                        AllocaInst* temp = (AllocaInst*)arg_$param['idx'];
+                                        IRBuilder<> irb(point);
+                                        Value* v = irb.CreateMul(
+                                        ConstantInt::get(
+                                            IntegerType::get(F.getContext(), 64),
+                                            F.getParent()->getDataLayout().getTypeAllocSize(temp->getAllocatedType())), temp->getOperand(0));
+                                        args.push_back(v);
+                                    }else{
+                                        args.push_back(ConstantInt::get($f['function']['name']->getFunctionType()->getFunctionParamType(num), F.getParent()->getDataLayout().getTypeAllocSize(((AllocaInst*)arg_$param['idx'])->getAllocatedType())));
+                                    }
+                                }
+
+                                else
+                                    args.push_back(ConstantInt::get($f['function']['name']->getFunctionType()->getFunctionParamType(num), F.getParent()->getDataLayout().getTypeAllocSize(arg_$param['idx']->getType())));
+                            }
+                            else if(arg_$param['idx']->getType()->isPointerTy()){
+                                if(num>=$f['function']['name']->getFunctionType()->getNumParams()){
+                                    args.push_back(arg_$param['idx']);
+                                }
+                                else if($f['function']['name']->getFunctionType()->getFunctionParamType(num)->isPointerTy()){
+                                    Value* casted = CastInst::CreateBitOrPointerCast(arg_$param['idx'], $f['function']['name']->getFunctionType()->getFunctionParamType(num), "", point);
+                                    args.push_back(casted);
+                                }else if($f['function']['name']->getFunctionType()->getFunctionParamType(num)->isIntegerTy()){
+                                    Value* casted = CastInst::CreateBitOrPointerCast(arg_$param['idx'], $f['function']['name']->getFunctionType()->getFunctionParamType(num), "", point);
+
+                                    args.push_back(casted);
+                                }else
+                                    args.push_back(arg_$param['idx']);
+                            }
+                            else if(arg_$param['idx']->getType()->isIntegerTy()){
+                                if(num>=$f['function']['name']->getFunctionType()->getNumParams()){
+                                    args.push_back(arg_$param['idx']);
+                                }
+                                else if($f['function']['name']->getFunctionType()->getFunctionParamType(num)->isPointerTy()){
+                                    Value* casted = CastInst::CreateBitOrPointerCast(arg_$param['idx'], $f['function']['name']->getFunctionType()->getFunctionParamType(num), "", point);
+                                    args.push_back(casted);
+                                }else if($f['function']['name']->getFunctionType()->getFunctionParamType(num)->isIntegerTy()){
+                                    Value* casted= CastInst::CreateIntegerCast(arg_$param['idx'], $f['function']['name']->getFunctionType()->getFunctionParamType(num), true, "",  point);
+                                    args.push_back(casted);
+                                }else
+                                    args.push_back(arg_$param['idx']);
+                            }
+                            else{
+                                if(arg_$param['idx']->getType()->isVectorTy()){
+                                    Value* v = ExtractElementInst::Create(arg_$param['idx'], ConstantInt::get(IntegerType::get(*context, 32), 0), "", point);
+                                    args.push_back(v);
+                                } else
+                                    args.push_back(arg_$param['idx']);
+                            }
+                            #else
+                            if(taint_tracking_map.count(arg_$param['idx'])){
+                                args.push_back(taint_tracking_map[arg_$param['idx']]);
+                            }else{
+                                args.push_back(get_meta_data_default());
+                            }
+                            #end if
+                    }
+                }
+                else if($f['function']['name']->getFunctionType()->getNumParams() < inst->getNumOperands()){
+                    fprintf(stdout, "Param for %s can't cover all params which is %d\n", $f['function']['name']->getName().str().c_str(), inst->getNumOperands());
+                    assert(false);
+                } else {
+                    int end = $f['function']['name']->getFunctionType()->getNumParams() - args.size();
+                    for(int i=0;i<end;i++){
+                        num = args.size();
+                        if(i<inst->getNumOperands()){
+                            Value* arg_$param['idx'] = I->getOperand(i);
+                            #if 'mapping' not in $param
+                            if("$param['type']" == "type"){
+                                args.push_back(ConstantInt::get($f['function']['name']->getFunctionType()->getFunctionParamType(num), type_encode(arg_$param['idx']->getType())));
+                            }else if("$param['type']" == "sizeof"){
+                                if("$f['location']"=="AllocaInst"){
+                                    if(((AllocaInst*)I)->isArrayAllocation()){
+                                        AllocaInst* temp = (AllocaInst*)arg_$param['idx'];
+                                        IRBuilder<> irb(point);
+                                        Value* v = irb.CreateMul(
+                                        ConstantInt::get(
+                                            IntegerType::get(F.getContext(), 64),
+                                            F.getParent()->getDataLayout().getTypeAllocSize(temp->getAllocatedType())), temp->getOperand(0));
+                                        args.push_back(v);
+                                    }else{
+                                        args.push_back(ConstantInt::get($f['function']['name']->getFunctionType()->getFunctionParamType(num), F.getParent()->getDataLayout().getTypeAllocSize(((AllocaInst*)arg_$param['idx'])->getAllocatedType())));
+                                    }
+                                }
+                                else
+                                    args.push_back(ConstantInt::get($f['function']['name']->getFunctionType()->getFunctionParamType(num), F.getParent()->getDataLayout().getTypeAllocSize(arg_$param['idx']->getType())));
+                            }
+                            else if(arg_$param['idx']->getType()->isPointerTy()){
+                                if($f['function']['name']->getFunctionType()->getFunctionParamType(num)->isPointerTy()){
+                                    Value* casted = CastInst::CreateBitOrPointerCast(arg_$param['idx'], $f['function']['name']->getFunctionType()->getFunctionParamType(num), "", point);
+                                    args.push_back(casted);
+                                }else if($f['function']['name']->getFunctionType()->getFunctionParamType(num)->isIntegerTy()){
+                                    Value* casted = CastInst::CreateBitOrPointerCast(arg_$param['idx'], $f['function']['name']->getFunctionType()->getFunctionParamType(num), "", point);
+
+                                    args.push_back(casted);
+
+                                }else
+                                    assert(false);
+                            }
+                            else if(arg_$param['idx']->getType()->isIntegerTy()){
+                                if($f['function']['name']->getFunctionType()->getFunctionParamType(num)->isPointerTy()){
+                                    Value* casted = CastInst::CreateBitOrPointerCast(arg_$param['idx'], $f['function']['name']->getFunctionType()->getFunctionParamType(num), "", point);
+                                    args.push_back(casted);
+                                }else if($f['function']['name']->getFunctionType()->getFunctionParamType(num)->isIntegerTy()){
+                                    Value* casted= CastInst::CreateIntegerCast(arg_$param['idx'], $f['function']['name']->getFunctionType()->getFunctionParamType(num), true, "",  point);
+                                    args.push_back(casted);
+                                }else
+                                    assert(false);
+                            }
+                            else{
+                                if(arg_$param['idx']->getType()->isVectorTy()){
+                                    Value* v = ExtractElementInst::Create(arg_$param['idx'], ConstantInt::get(IntegerType::get(*context, 32), 0), "", point);
+                                    args.push_back(v);
+                                } else
+                                    args.push_back(arg_$param['idx']);
+                            }
+                            #else
+                            if(taint_tracking_map.count(arg_$param['idx'])){
+                                args.push_back(taint_tracking_map[arg_$param['idx']]);
+                            }else{
+                                args.push_back(get_meta_data_default());
+                            }
+                            #end if
+                        }else {
+                            #if 'mapping' not in $param
+                            if("$param['type']" == "type"){
+                                args.push_back(ConstantInt::get($f['function']['name']->getFunctionType()->getFunctionParamType(num), 0));
+                            }else if("$param['type']" == "sizeof"){
+                                args.push_back(ConstantInt::get($f['function']['name']->getFunctionType()->getFunctionParamType(num), 0)));
+                            }
+                            else if($f['function']['name']->getFunctionType()->getFunctionParamType(i)->isPointerTy()){
+                                args.push_back(Constant::getNullValue($f['function']['name']->getFunctionType()->getFunctionParamType(i)));
+                            }else if($f['function']['name']->getFunctionType()->getFunctionParamType(i)->isIntegerTy()){
+                                args.push_back(ConstantInt::get($f['function']['name']->getFunctionType()->getFunctionParamType(i), 0));
+                            }else {
+                                assert(false);
+                            }
+                            #else
+                            args.push_back(get_meta_data_default());
+                            #end if
+                        }
+                    }
+                }
+                #else
+                    Value* arg_$param['idx']$param['unqi'] = nullptr;
+                    #if $param['idx'] == 'r'
+                    #if $f['location'] == 'VAStartInst'
+                    arg_$param['idx']$param['unqi'] = func_va_tls[F.getName()];
+                    #else
+                    arg_$param['idx']$param['unqi'] = I;
+                    #end if
+                    #else
+                    arg_$param['idx']$param['unqi'] = I->getOperand($param['idx']-1);
+                    #end if
+                    num = args.size();
+                    #if 'mapping' not in $param
+                    if("$param['type']" == "type"){
+                        args.push_back(ConstantInt::get($f['function']['name']->getFunctionType()->getFunctionParamType(num), type_encode(arg_$param['idx']$param['unqi']->getType())));
+                    }else if("$param['type']" == "sizeof"){
+                        if("$f['location']"=="AllocaInst"){
+                            if(((AllocaInst*)I)->isArrayAllocation()){
+                                AllocaInst* temp = (AllocaInst*)arg_$param['idx']$param['unqi'];
+                                IRBuilder<> irb(point);
+                                Value* v = irb.CreateMul(
+                                ConstantInt::get(
+                                    IntegerType::get(F.getContext(), 64),
+                                    F.getParent()->getDataLayout().getTypeAllocSize(temp->getAllocatedType())), temp->getOperand(0));
+                                args.push_back(v);
+                            }else{
+                                args.push_back(ConstantInt::get($f['function']['name']->getFunctionType()->getFunctionParamType(num), F.getParent()->getDataLayout().getTypeAllocSize(((AllocaInst*)arg_$param['idx']$param['unqi'])->getAllocatedType())));
+                            }
+                        }
+
+                        else
+                            args.push_back(ConstantInt::get($f['function']['name']->getFunctionType()->getFunctionParamType(num), F.getParent()->getDataLayout().getTypeAllocSize(arg_$param['idx']$param['unqi']->getType())));
+                    }else if("$param['type']" == "opcode"){
+                        args.push_back(ConstantInt::get($f['function']['name']->getFunctionType()->getFunctionParamType(num),((BinaryOperator*) arg_$param['idx']$param['unqi'])->getOpcode()));
+                    }else if("$param['type']" == "va_arg_tls"){
+                        Value* casted = CastInst::CreateBitOrPointerCast(func_va_tls[F.getName()], $f['function']['name']->getFunctionType()->getFunctionParamType(num), "", point);
+                        args.push_back(casted);
+                    }
+                    else if(arg_$param['idx']$param['unqi']->getType()->isPointerTy()){
+                        if($f['function']['name']->getFunctionType()->getFunctionParamType(num)->isPointerTy()){
+                            Value* casted = CastInst::CreateBitOrPointerCast(arg_$param['idx']$param['unqi'], $f['function']['name']->getFunctionType()->getFunctionParamType(num), "", point);
+                            args.push_back(casted);
+                        }else if($f['function']['name']->getFunctionType()->getFunctionParamType(num)->isIntegerTy()){
+                            #if $param['idx'] == 'r' and $f['location'] == 'VAStartInst'
+                            if($f['function']['name']->getFunctionType()->getFunctionParamType(num)->isIntegerTy(64)){
+                                Value* casted = CastInst::CreateBitOrPointerCast(arg_$param['idx']$param['unqi'], $f['function']['name']->getFunctionType()->getFunctionParamType(num), "", point);
+                                args.push_back(casted);
+                            }else{
+                                Value* casted= CastInst::CreateIntegerCast(((AllocaInst*)arg_$param['idx']$param['unqi'])->getArraySize(), $f['function']['name']->getFunctionType()->getFunctionParamType(num), true, "",  point);
+                                args.push_back(casted);
+                            }
+
+                            #else
+                            Value* casted = CastInst::CreateBitOrPointerCast(arg_$param['idx']$param['unqi'], $f['function']['name']->getFunctionType()->getFunctionParamType(num), "", point);
+
+                            args.push_back(casted);
+
+                            #end if
+                        }else
+                            assert(false);
+                    }
+                    else if(arg_$param['idx']$param['unqi']->getType()->isIntegerTy()){
+                        if($f['function']['name']->getFunctionType()->getFunctionParamType(num)->isPointerTy()){
+                            Value* casted = CastInst::CreateBitOrPointerCast(arg_$param['idx']$param['unqi'], $f['function']['name']->getFunctionType()->getFunctionParamType(num), "", point);
+                            args.push_back(casted);
+                        }else if($f['function']['name']->getFunctionType()->getFunctionParamType(num)->isIntegerTy()){
+                            #if $param['idx'] == 'r' and $f['location'] == 'BinaryOperator'
+                            if($f['function']['name']->getFunctionType()->getFunctionParamType(num)->isIntegerTy(8)){
+                                args.push_back(ConstantInt::get($f['function']['name']->getFunctionType()->getFunctionParamType(num),((BinaryOperator*) arg_$param['idx']$param['unqi'])->getOpcode()));
+                            }else{
+                                Value* casted= CastInst::CreateIntegerCast(arg_$param['idx']$param['unqi'], $f['function']['name']->getFunctionType()->getFunctionParamType(num), true, "",  point);
+                                args.push_back(casted);
+                            }
+                            #else
+                            Value* casted= CastInst::CreateIntegerCast(arg_$param['idx']$param['unqi'], $f['function']['name']->getFunctionType()->getFunctionParamType(num), true, "",  point);
+                            args.push_back(casted);
+                            #end if
+                        }else
+                            assert(false);
+                    }else if(arg_$param['idx']$param['unqi']->getType()->isFloatTy() || arg_$param['idx']$param['unqi']->getType()->isDoubleTy()){
+                        args.push_back(ConstantInt::get($f['function']['name']->getFunctionType()->getFunctionParamType(num), 0));
+                    }
+                    else{
+                        if(arg_$param['idx']$param['unqi']->getType()->isVectorTy()){
+                            Value* v = ExtractElementInst::Create(arg_$param['idx']$param['unqi'], ConstantInt::get(IntegerType::get(*context, 32), 0), "", point);
+                            if(v->getType()->isIntegerTy()){
+                                Value* casted= CastInst::CreateIntegerCast(v, $f['function']['name']->getFunctionType()->getFunctionParamType(num), true, "",  point);
+                                args.push_back(casted);
+                            }else if(v->getType()->isFloatTy() || v->getType()->isDoubleTy()){
+                                args.push_back(ConstantInt::get($f['function']['name']->getFunctionType()->getFunctionParamType(num), 0));
+                            }else
+                                args.push_back(v);
+                        } else
+                            args.push_back(arg_$param['idx']$param['unqi']);
+                    }
+                    #else
+                    if(taint_tracking_map.count(arg_$param['idx']$param['unqi'])){
+                        args.push_back(taint_tracking_map[arg_$param['idx']$param['unqi']]);
+                    }else{
+                        args.push_back(get_meta_data_default());
+                    }
+                    #end if
+                #end if
+                #end for
+
+                ArrayRef<Value*> args_arr(args);
+                CallInst* call$f['function']['name'] = nullptr;
+                #if 'switch' not in $f
+                call$f['function']['name'] = CallInst::Create($f['function']['name'], args_arr,"",point);
+                to_be_inline.push_back(call$f['function']['name']);
+                #else
+                switch(((ConstantInt*)args[$f['switch_idx']])->getValue().getSExtValue()){
+                #for $k, $v in $f['switch_funcs'].items()
+                case $k:
+                    call$f['function']['name'] = CallInst::Create($v, args_arr,"",point);
+                    break;
+                #end for
+                default:
+                    call$f['function']['name'] = CallInst::Create($f['function']['name'], args_arr,"",point);
+                }
+                #end if
+                #if 'return_info' in $f
+                    taint_tracking_map[I] = call$f['function']['name'];
+                #end if
+            }
+            #end for
+            //call function
+            if(auto I = dyn_cast<CallInst>(inst)){
+            #for $f in $meta['callInst']
+            if(get_func_name(I).equals("$f['location']")){
+            #if $f['shift'] == 'after'
+                Instruction* point= I->getNextNode();
+            #else
+                Instruction* point= I;
+            #end if
+            vector<Value*> args;
+            int num = 0;
+            #for $param in $f['params']
+            #if 'idx' not in $param
+            #continue
+            #end if
+            #if $param['idx'] == 'p'
+            if($f['function']['name']->isVarArg()){
+                for(int i=0;i<I->getNumArgOperands();i++){
+                    num = args.size();
+                    Value* arg_$param['idx'] = I->getArgOperand(i);
+                    #if 'mapping' not in $param
+                    if("$param['type']" == "type"){
+                        args.push_back(ConstantInt::get($f['function']['name']->getFunctionType()->getFunctionParamType(num), type_encode(arg_$param['idx']->getType())));
+                    }else if("$param['type']" == "sizeof"){
+                        args.push_back(ConstantInt::get($f['function']['name']->getFunctionType()->getFunctionParamType(num), F.getParent()->getDataLayout().getTypeAllocSize(arg_$param['idx']->getType())));
+                    }
+                    else if(arg_$param['idx']->getType()->isPointerTy()){
+                        if(num>=$f['function']['name']->getFunctionType()->getNumParams()){
+                            args.push_back(arg_$param['idx']);
+                        }
+                        else if($f['function']['name']->getFunctionType()->getFunctionParamType(num)->isPointerTy()){
+                            Value* casted = CastInst::CreateBitOrPointerCast(arg_$param['idx'], $f['function']['name']->getFunctionType()->getFunctionParamType(num), "", point);
+                            args.push_back(casted);
+                        }else if($f['function']['name']->getFunctionType()->getFunctionParamType(num)->isIntegerTy()){
+                            Value* casted = nullptr;
+                            if("$param['type']" == "threadid"){
+                                LoadInst* loadpid = new LoadInst(arg_$param['idx'], "", point);
+                                casted = CastInst::CreateIntegerCast(loadpid, $f['function']['name']->getFunctionType()->getFunctionParamType(num), true, "", point);
+                            }else{
+                                casted = CastInst::CreateBitOrPointerCast(arg_$param['idx'], $f['function']['name']->getFunctionType()->getFunctionParamType(num), "", point);
+                            }
+
+
+                            args.push_back(casted);
+
+                        }else
+                            args.push_back(arg_$param['idx']);
+                    }
+                    else if(arg_$param['idx']->getType()->isIntegerTy()){
+                        if(num>=$f['function']['name']->getFunctionType()->getNumParams()){
+                            args.push_back(arg_$param['idx']);
+                        }
+                        else if($f['function']['name']->getFunctionType()->getFunctionParamType(num)->isPointerTy()){
+                            Value* casted = CastInst::CreateBitOrPointerCast(arg_$param['idx'], $f['function']['name']->getFunctionType()->getFunctionParamType(num), "", point);
+                            args.push_back(casted);
+                        }else if($f['function']['name']->getFunctionType()->getFunctionParamType(num)->isIntegerTy()){
+                            Value* casted= CastInst::CreateIntegerCast(arg_$param['idx'], $f['function']['name']->getFunctionType()->getFunctionParamType(num), true, "",  point);
+                            args.push_back(casted);
+                        }else
+                            args.push_back(arg_$param['idx']);
+                    }
+                    else{
+                        if(arg_$param['idx']->getType()->isVectorTy()){
+                            Value* v = ExtractElementInst::Create(arg_$param['idx'], ConstantInt::get(IntegerType::get(*context, 32), 0), "", point);
+                            args.push_back(v);
+                        } else
+                            args.push_back(arg_$param['idx']);
+                    }
+                    #else
+                    if(taint_tracking_map.count(arg_$param['idx'])){
+                        args.push_back(taint_tracking_map[arg_$param['idx']]);
+                    }else{
+                        args.push_back(get_meta_data_default());
+                    }
+                    #end if
+                }
+            }
+            else if($f['function']['name']->getFunctionType()->getNumParams() < I->getNumArgOperands()){
+                fprintf(stdout, "Param for %s can't cover all params which is %d\n", $f['function']['name']->getName().str().c_str(), I->getNumArgOperands());
+                assert(false);
+            }else{
+                int end = $f['function']['name']->getFunctionType()->getNumParams() - args.size();
+                for(int i=0;i< end;i++){
+                    num = args.size();
+                    if(i<I->getNumArgOperands()){
+                        Value* arg_$param['idx'] = I->getArgOperand(i);
+                        #if 'mapping' not in $param
+                        if("$param['type']" == "type"){
+                            args.push_back(ConstantInt::get($f['function']['name']->getFunctionType()->getFunctionParamType(num), type_encode(arg_$param['idx']->getType())));
+                        }else if("$param['type']" == "sizeof"){
+                            args.push_back(ConstantInt::get($f['function']['name']->getFunctionType()->getFunctionParamType(num), F.getParent()->getDataLayout().getTypeAllocSize(arg_$param['idx']->getType())));
+                        }
+                        else if(arg_$param['idx']->getType()->isPointerTy()){
+                            if($f['function']['name']->getFunctionType()->getFunctionParamType(num)->isPointerTy()){
+                                Value* casted = CastInst::CreateBitOrPointerCast(arg_$param['idx'], $f['function']['name']->getFunctionType()->getFunctionParamType(num), "", point);
+                                args.push_back(casted);
+                            }else if($f['function']['name']->getFunctionType()->getFunctionParamType(num)->isIntegerTy()){
+                                Value* casted = nullptr;
+                                if("$param['type']" == "threadid"){
+                                    LoadInst* loadpid = new LoadInst(arg_$param['idx'], "", point);
+                                    casted = CastInst::CreateIntegerCast(loadpid, $f['function']['name']->getFunctionType()->getFunctionParamType(num), true, "", point);
+                                }else{
+                                    casted = CastInst::CreateBitOrPointerCast(arg_$param['idx'], $f['function']['name']->getFunctionType()->getFunctionParamType(num), "", point);
+                                }
+
+                                args.push_back(casted);
+
+                            }else
+                                assert(false);
+                        }
+                        else if(arg_$param['idx']->getType()->isIntegerTy()){
+                            if($f['function']['name']->getFunctionType()->getFunctionParamType(num)->isPointerTy()){
+                                Value* casted = CastInst::CreateBitOrPointerCast(arg_$param['idx'], $f['function']['name']->getFunctionType()->getFunctionParamType(num), "", point);
+                                args.push_back(casted);
+                            }else if($f['function']['name']->getFunctionType()->getFunctionParamType(num)->isIntegerTy()){
+                                Value* casted= CastInst::CreateIntegerCast(arg_$param['idx'], $f['function']['name']->getFunctionType()->getFunctionParamType(num), true, "",  point);
+                                args.push_back(casted);
+                            }else
+                                assert(false);
+                        }
+                        else{
+                            if(arg_$param['idx']->getType()->isVectorTy()){
+                                Value* v = ExtractElementInst::Create(arg_$param['idx'], ConstantInt::get(IntegerType::get(*context, 32), 0), "", point);
+                                args.push_back(v);
+                            } else
+                                args.push_back(arg_$param['idx']);
+                        }
+                        #else
+                        if(taint_tracking_map.count(arg_$param['idx'])){
+                            args.push_back(taint_tracking_map[arg_$param['idx']]);
+                        }else{
+                            args.push_back(get_meta_data_default());
+                        }
+                        #end if
+                    }
+                    else{
+                        #if 'mapping' not in $param
+                        if("$param['type']" == "type"){
+                            args.push_back(ConstantInt::get($f['function']['name']->getFunctionType()->getFunctionParamType(num), 0));
+                        }else if("$param['type']" == "sizeof"){
+                            args.push_back(ConstantInt::get($f['function']['name']->getFunctionType()->getFunctionParamType(num), 0));
+                        }
+                        else if($f['function']['name']->getFunctionType()->getFunctionParamType(i)->isPointerTy()){
+                            args.push_back(Constant::getNullValue($f['function']['name']->getFunctionType()->getFunctionParamType(i)));
+                        }else if($f['function']['name']->getFunctionType()->getFunctionParamType(i)->isIntegerTy()){
+                            args.push_back(ConstantInt::get($f['function']['name']->getFunctionType()->getFunctionParamType(i), 0));
+                        }else {
+                            assert(false);
+                        }
+                        #else
+                        args.push_back(get_meta_data_default());
+                        #end if
+                    }
+                }
+            }
+            #else
+            Value* arg_$param['idx']$param['unqi'] = nullptr;
+            #if $param['idx'] == 'r'
+                arg_$param['idx']$param['unqi'] = I;
+            #else
+                arg_$param['idx']$param['unqi'] = I->getArgOperand($param['idx']-1);
+            #end if
+            num = args.size();
+            #if 'mapping' not in $param
+            if("$param['type']" == "type"){
+                args.push_back(ConstantInt::get($f['function']['name']->getFunctionType()->getFunctionParamType(num), type_encode(arg_$param['idx']$param['unqi']->getType())));
+            }else if("$param['type']" == "sizeof"){
+                args.push_back(ConstantInt::get($f['function']['name']->getFunctionType()->getFunctionParamType(num), F.getParent()->getDataLayout().getTypeAllocSize(arg_$param['idx']$param['unqi']->getType())));
+            }
+            else if(arg_$param['idx']$param['unqi']->getType()->isPointerTy()){
+                if($f['function']['name']->getFunctionType()->getFunctionParamType(num)->isPointerTy()){
+                    Value* casted = CastInst::CreateBitOrPointerCast(arg_$param['idx']$param['unqi'], $f['function']['name']->getFunctionType()->getFunctionParamType(num), "", point);
+                    args.push_back(casted);
+                }else if($f['function']['name']->getFunctionType()->getFunctionParamType(num)->isIntegerTy()){
+
+                    Value* casted = nullptr;
+                    if("$param['type']" == "threadid"){
+                        LoadInst* loadpid = new LoadInst(arg_$param['idx']$param['unqi'], "", point);
+                        casted = CastInst::CreateIntegerCast(loadpid, $f['function']['name']->getFunctionType()->getFunctionParamType(num), true, "", point);
+                    }else{
+                        casted = CastInst::CreateBitOrPointerCast(arg_$param['idx']$param['unqi'], $f['function']['name']->getFunctionType()->getFunctionParamType(num), "", point);
+                    }
+
+                    args.push_back(casted);
+
+                }else
+                    assert(false);
+            }
+            else if(arg_$param['idx']$param['unqi']->getType()->isIntegerTy()){
+                if($f['function']['name']->getFunctionType()->getFunctionParamType(num)->isPointerTy()){
+                    Value* casted = CastInst::CreateBitOrPointerCast(arg_$param['idx']$param['unqi'], $f['function']['name']->getFunctionType()->getFunctionParamType(num), "", point);
+                    args.push_back(casted);
+                }else if($f['function']['name']->getFunctionType()->getFunctionParamType(num)->isIntegerTy()){
+                    Value* casted= CastInst::CreateIntegerCast(arg_$param['idx']$param['unqi'], $f['function']['name']->getFunctionType()->getFunctionParamType(num), true, "",  point);
+                    args.push_back(casted);
+                }else
+                    assert(false);
+            }
+            else{
+                if(arg_$param['idx']$param['unqi']->getType()->isVectorTy()){
+                    Value* v = ExtractElementInst::Create(arg_$param['idx']$param['unqi'], ConstantInt::get(IntegerType::get(*context, 32), 0), "", point);
+                    args.push_back(v);
+                } else
+                    args.push_back(arg_$param['idx']$param['unqi']);
+            }
+            #else
+            if(taint_tracking_map.count(arg_$param['idx']$param['unqi'])){
+                args.push_back(taint_tracking_map[arg_$param['idx']$param['unqi']]);
+            }else{
+                args.push_back(get_meta_data_default());
+            }
+            #end if
+            #end if
+            #end for
+                ArrayRef<Value*> args_arr(args);
+                CallInst* call$f['function']['name'] = nullptr;
+
+                #if 'switch' not in $f
+                call$f['function']['name'] = CallInst::Create($f['function']['name'], args_arr,"",point);
+                #else
+                switch(((ConstantInt*)args[$f['switch_idx']])->getValue().getSExtValue()){
+                #for $k, $v in $f['switch_funcs'].items()
+                case $k:
+                    call$f['function']['name'] = CallInst::Create($v, args_arr,"",point);
+                    break;
+                #end for
+                default:
+                    call$f['function']['name'] = CallInst::Create($f['function']['name'], args_arr,"",point);
+                }
+                #end if
+                #if 'return_info' in $f
+                    taint_tracking_map[I] = call$f['function']['name'];
+                #end if
+            }
+            #end for
+            if(is_tt_func(get_func_name(I))){
+                #if $has_return
+                if(taint_tracking_map.find(I->getArgOperand(0)) != taint_tracking_map.end())
+                taint_tracking_map[I] = taint_tracking_map[I->getArgOperand(0)];
+                else
+                taint_tracking_map[I] = get_meta_data_default();
+                #end if
+            }
+            }
+        }
+        //third loop to finalize PHI if needed
+        for(Instruction* inst : to_be_instr){
+            #if $has_return
+            if( auto I = dyn_cast<PHINode>(inst)){
+                PHINode * shadow = (PHINode *)taint_tracking_map[I];
+                int num = shadow->getNumIncomingValues();
+                for (int i = 0; i < num; i++) {
+                    if (taint_tracking_map.count(I->getIncomingValue(i))&& taint_tracking_map[I->getIncomingValue(i)] !=  nullptr) {
+                        shadow->setIncomingValue(i, taint_tracking_map[I->getIncomingValue(i)]);
+                    } else if(auto undef = dyn_cast<UndefValue>(I->getIncomingValue(i))){
+                        shadow->setIncomingValue(i,get_meta_data_poison_default());
+                    } else {
+                        shadow->setIncomingValue(i,get_meta_data_default());
+                    }
+
+                }
+            }
+            #end if
+        }
+    }
+
+
+
+
+};
+
+char EraserFunctionInstr::ID = 0;
+static cl::opt<string> InputFilename("lib_file", cl::desc("Specify input filename for mypass"), cl::value_desc("filename"));
+static RegisterPass<EraserFunctionInstr> X("eraser", "Do Instr",
+                                           false /* Only looks at CFG */,
+                                           false /* Analysis Pass */);

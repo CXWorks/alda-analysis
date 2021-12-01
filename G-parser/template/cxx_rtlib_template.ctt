@@ -1,0 +1,345 @@
+#raw
+#include <limits.h>
+#include <pthread.h>
+#include <string.h>
+#include <sys/stat.h>
+#include <time.h>
+#include "rtLib.h"
+#include "rtLib.cpp"
+#include "bit_vector.h"
+#include<atomic>
+#include <execinfo.h>
+#define __NUM_OF_LOCKS (1<<20)
+#define __MAX_PARAM_NUM (100)
+#end raw
+using namespace std;
+
+
+typedef unsigned char uchar;
+
+typedef unsigned int uint;
+
+typedef unsigned short ushort;
+
+typedef unsigned long ulong;
+
+typedef unsigned long long ull;
+
+typedef uint opcode;
+
+typedef void* va_arg_tls;
+
+typedef char int8;
+typedef short int16;
+typedef int int32;
+typedef long long int64;
+
+typedef  int64 pointer;
+typedef  int64 threadid;
+typedef  int32 lockid;
+
+inline uint strlen(int64 a2 ){
+    return strlen((char*) a2);
+}
+inline size_t strnlen (int64 __string, size_t __maxlen){
+    return strnlen((char*)__string, __maxlen);
+}
+
+class type{
+private:
+    uint flag = 0;
+
+    bool compatible(uint f1, uint f2){
+        uint mask = 31;
+        uint c1 = f1 & mask;
+        uint c2 = f2 & mask;
+        if(c1 != c2){
+            if(c1>=17 && c2 >= c1)
+                return true;
+            else if(c1>=1 && c2>c1 && c2<=6)
+                return true;
+            else
+                return false;
+        } else {
+            if(c1 == 15){
+                return compatible(f1>>5, f2>>5);
+            }
+            else
+                return true;
+        }
+    }
+public:
+    type(){}
+    type(uint f){ flag = f;}
+
+    bool operator==(type& rhs){
+        return this->flag == rhs.flag;
+    }
+    bool operator!=(type& rhs){
+        return this->flag != rhs.flag;
+    }
+
+    bool compatible(type& rhs){
+        uint mask = 31;
+        return this->compatible(flag, rhs.flag);
+    }
+};
+
+#for $tyd in $tydef
+
+$to_tydef($tyd)
+
+#end for
+
+uint counter = 0;
+uint warnings = 0;
+
+void print_trace (void)
+{
+    void    * array[10];
+    size_t  size;
+    char    ** strings;
+    size_t  i;
+
+    size = backtrace(array, 10);
+    strings = backtrace_symbols (array, size);
+    if (NULL == strings)
+    {
+        perror("backtrace_symbols");
+        exit(EXIT_FAILURE);
+    }
+
+    printf ("Obtained %zd stack frames.\n", size);
+
+    for (i = 0; i < size; i++)
+        printf ("%s\n", strings[i]);
+
+    free (strings);
+    strings = NULL;
+}
+
+void alda_assert(bool res, bool asset){
+    if(__builtin_expect(res == asset, 1)){
+
+    }else
+        print_trace();
+
+}
+
+void report(bool asset, string s, int integer = 0){
+    if(asset){
+
+    }else
+        cout<<s<<endl;
+    if(integer)
+        cout<<integer<<endl;
+}
+inline void* to_ptr(ull l){
+return (void*)l;
+}
+
+inline int64 ptr_offset(int64 l, uint i){
+return (int64)((ull)l+i);
+}
+template <class T>
+inline T& ref_offset(T& a, int b){
+    return (&a)[b];
+}
+inline ull  get_addr(void* location){
+    unsigned long mask = __NUM_OF_LOCKS - 1;
+    return mask & (((ull)location)>>$shift);
+}
+
+inline ull  get_addr(ull location){
+    ull mask = __NUM_OF_LOCKS - 1;
+    return  mask & (location>>$shift);
+}
+
+
+
+bool inited = false;
+
+#for $var in $clazz
+
+$to_clazz_def($var)
+
+#end for
+
+
+
+#for $var in $ds
+
+$to_declaration($var)
+
+#end for
+
+
+#for $var in $vars
+
+#if 'sync' in $var and $var['sync'] == 'true'
+pthread_spinlock_t $to_lock_pool_name($var)[__NUM_OF_LOCKS];
+#end if
+
+#if 'size' in $var and $var['real_cpp_type'] != "threadid"
+
+$to_compression($var)
+
+#end if
+
+
+#end for
+
+
+#if len($libc) != 0
+
+void $libc['LibcWrite'] (int64, int64);
+void $libc['LibcRead'] (int64, int64);
+
+#define COMMON_INTERCEPTOR_WRITE_RANGE(ptr, size) \
+  $libc['LibcWrite'] ((int64)ptr, size);
+
+#define COMMON_INTERCEPTOR_READ_RANGE(ptr, size) \
+  $libc['LibcRead'] ((int64)ptr, size);
+
+#define COMMON_INTERCEPTOR_COPY_RANGE(dst, src, size) \
+    $libc['MemCpyInst'] ((int64)dst, (int64)src, size)
+
+#define COMMON_INTERCEPTOR_MOVE_RANGE(dst, src, size) \
+    $libc['MemMoveInst'] ((int64)dst, (int64)src, size)
+#raw
+#include  "msan_header.h"
+#include "sanitizer_common_interceptors_format.h"
+#end raw
+
+#end if
+
+void destroy_key(void * p){
+    free(p);
+}
+
+
+thread_local ull  param_key[__MAX_PARAM_NUM];
+thread_local ull  byval_param[__MAX_PARAM_NUM];
+thread_local ull  va_key[__MAX_PARAM_NUM];
+thread_local ull  va_size;
+thread_local ull ret_key;
+
+$return_value * get_va_arg(){
+
+    return ($return_value *)va_key;
+
+}
+
+ull * get_va_size(){
+    return (ull *)(&va_size);
+}
+
+$return_value * get_param_stack(){
+
+    return ($return_value *)param_key;
+
+}
+
+$return_value * get_ret_stack(){
+    return ($return_value *)(&ret_key);
+
+}
+
+void** get_byval_stack(){
+    return (void **)(byval_param);
+
+}
+
+#if $tid_size > 0
+#if $otid == 0
+thread_local int64 cpid = 0;
+static atomic_long idcounter = {0};
+
+int64 get_id(int64 pid_t) {
+if(cpid)
+return cpid;
+
+    cpid = ++idcounter;
+return cpid;
+}
+#else
+atomic_ulong idx[$tid_size];
+pthread_spinlock_t tidlock;
+int get_id(pthread_t pid_t){
+    ull pid = pid_t;
+    ull ans = 0;
+    #for $i in range($tid_size)
+    if(idx[$i].load(memory_order_consume) == pid)
+        return $i+1;
+    #end for
+    pthread_spin_lock(&tidlock);
+    #for $i in range($tid_size)
+    ans = idx[$i].load(memory_order_acquire);
+    if(ans == pid) {
+        pthread_spin_unlock(&tidlock);
+        return $i+1;
+    }
+    else if(ans==0){
+        idx[$i].store(pid, memory_order_consume);
+        pthread_spin_unlock(&tidlock);
+        return $i+1;
+    }
+    #end for
+    throw "Unexpected";
+}
+#end if
+#end if
+
+//init function
+void initEraser(){
+if(!inited){
+cout<<"init rtLib variables"<<endl;
+
+for(int i=0;i<__MAX_PARAM_NUM;i++) {
+    param_key[i] = 0;
+    va_key[i] = 0;
+}
+
+ret_key = 0;
+va_size=0;
+#if $init is not None
+$cpp_type($init)::init();
+#end if
+#for $var in $vars
+
+#if 'sync' in $var and $var['sync'] == 'true'
+    for (int i = 0; i < __NUM_OF_LOCKS; ++i) {
+        pthread_spin_init(&$to_lock_pool_name($var)[i], 0);
+    }
+#end if
+
+#if 'size' in $var and $var['scalar'] not in $tid_scalar
+    pthread_spin_init(&${var['scalar']}_lock, 0);
+#end if
+
+#end for
+
+#if $tid_size > 0
+#if $otid
+for(int i=0;i<$tid_size;i++)
+    idx[i]=0;
+pthread_spin_init(&tidlock, 0);
+#end if
+#end if
+inited = true;
+}
+}
+
+//shutdown function
+void destoryEraser(){
+cout<<"finished "<<counter<<warnings<<endl;
+}
+
+
+
+#for $func in $function
+
+$to_func($func, $shift)
+
+#end for
+
