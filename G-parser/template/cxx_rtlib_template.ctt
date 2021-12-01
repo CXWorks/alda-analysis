@@ -116,6 +116,7 @@ void print_trace (void)
 
     free (strings);
     strings = NULL;
+    exit(-1);
 }
 
 void alda_assert(bool res, bool asset){
