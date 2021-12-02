@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+lex -o tokens.cpp tokens.l
+
+bison -o parser.cpp -d parser.y
 
 cmake . && make clean && make
 

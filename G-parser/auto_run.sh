@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+lex -o tokens.cpp tokens.l
+
+bison -o parser.cpp -d parser.y
 
 cmake . && make clean && make
 
@@ -10,4 +13,3 @@ cd template && python3 -u generate_cpp.py gen_cxx_cpp --instr=cxx.json --tlp=cxx
 
 cd template && python3 -u generate_opt.py gen-opt-cpp --instr=opt.json --tlp=llvm_opt_template.ctt && cd ..
 
-# mv *_gen.cpp ../
