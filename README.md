@@ -8,8 +8,8 @@ This project implements a DSL parser & runtime library for dynamic analysis name
 
 ## Artifact Evaluation
 
-+ Virtual Machine: 
-+ Document: 
++ Virtual Machine: [DOI](https://doi.org/10.5281/zenodo.5748339). Username: **anony** Password: **password**
++ Document: [pdf](AE.pdf)
 
 ## Project Structures
 
