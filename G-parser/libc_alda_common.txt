@@ -599,12 +599,6 @@ onStrRChr(libc_address s) {
 
 insert after func strrchr call onStrRChr($1)
 
-
-
-
-
-insert after func strtoul call onStrRChr($1)
-
 insert after func dlopen call onStrRChr($1)
 
 insert after func unlink call onStrRChr($1)
@@ -614,6 +608,16 @@ insert after func chown call onStrRChr($1)
 insert after func chmod call onStrRChr($1)
 
 insert after func realpath call onStrRChr($r)
+
+onStrToul(libc_address s, libc_address d) {
+    COMMON_INTERCEPTOR_READ_RANGE(s, strlen(s) + 1);
+    if(d)
+        COMMON_INTERCEPTOR_WRITE_RANGE(d, 8);
+}
+
+insert after func strtoul call onStrToul($1, $2)
+
+insert after func __strtoul_internal call onStrToul($1, $2)
 
 onGetPwnam(libc_address s, libc_address r) {
     COMMON_INTERCEPTOR_READ_RANGE(s, strlen(s) + 1);
