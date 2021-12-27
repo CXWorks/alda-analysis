@@ -7,13 +7,13 @@
 namespace universe {
 
 
-    template<class K, class V, bool sync, uint shift, uint ratio, bool offset>
-    map<K, V, sync, shift, ratio, offset>::map() {
+    template<class K, class V, bool sync, uint shift, uint memory_opt, uint ratio, bool offset>
+    map<K, V, sync, shift, memory_opt, ratio, offset>::map() {
 
     }
 
-    template<class K, class V, bool sync, uint shift, uint ratio, bool offset>
-    bool map<K, V, sync, shift, ratio, offset>::find(K key) {
+    template<class K, class V, bool sync, uint shift, uint memory_opt, uint ratio, bool offset>
+    bool map<K, V, sync, shift, memory_opt, ratio, offset>::find(K key) {
         unsigned long long k = (key >> (shift));
         if (offset)
             return true;
@@ -25,8 +25,8 @@ namespace universe {
         }
     }
 
-    template<class K, class V, bool sync, uint shift, uint ratio, bool offset>
-    unsigned long map<K, V, sync, shift, ratio, offset>::size() {
+    template<class K, class V, bool sync, uint shift, uint memory_opt, uint ratio, bool offset>
+    unsigned long map<K, V, sync,  shift, memory_opt, ratio, offset>::size() {
         if (offset)
             return offset_pagemap.get_size();
         else {
@@ -37,8 +37,8 @@ namespace universe {
         }
     }
 
-    template<class K, class V, bool sync, uint shift, uint ratio, bool offset>
-    V &map<K, V, sync, shift, ratio, offset>::get(K key) {
+    template<class K, class V, bool sync, uint shift, uint memory_opt, uint ratio, bool offset>
+    V &map<K, V, sync, shift, memory_opt, ratio, offset>::get(K key) {
         unsigned long long k = (key >> (shift));
         if (offset) {
             k = k<<shift;
@@ -52,8 +52,8 @@ namespace universe {
         }
     }
 
-    template<class K, class V, bool sync, uint shift, uint ratio, bool offset>
-    bool map<K, V, sync, shift, ratio, offset>::test(K key) {
+    template<class K, class V, bool sync, uint shift, uint memory_opt, uint ratio, bool offset>
+    bool map<K, V, sync, shift, memory_opt, ratio, offset>::test(K key) {
         unsigned long long k = (key >> (shift));
         if (offset) {
             return true;
@@ -66,8 +66,8 @@ namespace universe {
         }
     }
 
-    template<class K, class V, bool sync, uint shift, uint ratio, bool offset>
-    ull map<K, V, sync, shift, ratio, offset>::get(K key, size_t size) {
+    template<class K, class V, bool sync, uint shift, uint memory_opt, uint ratio, bool offset>
+    ull map<K, V, sync, shift, memory_opt, ratio, offset>::get(K key, size_t size) {
         unsigned long long k = (key >> (shift));
         if (offset) {
             k = k<<shift;
@@ -89,8 +89,8 @@ namespace universe {
         }
     }
 
-    template<class K, class V, bool sync, uint shift, uint ratio, bool offset>
-    void map<K, V, sync, shift, ratio, offset>::set(K key, ull v, size_t size) {
+    template<class K, class V, bool sync, uint shift, uint memory_opt, uint ratio, bool offset>
+    void map<K, V, sync, shift, memory_opt, ratio, offset>::set(K key, ull v, size_t size) {
         unsigned long long k = (key >> (shift));
 
         if (offset) {
@@ -117,8 +117,8 @@ namespace universe {
         }
     }
 
-    template<class K, class V, bool sync, uint shift, uint ratio, bool offset>
-    char &map<K, V, sync, shift, ratio, offset>::get1(K key) {
+    template<class K, class V, bool sync, uint shift, uint memory_opt, uint ratio, bool offset>
+    char &map<K, V, sync, shift, memory_opt, ratio, offset>::get1(K key) {
 
         if (offset)
             return offset_pagemap.get1(key);
@@ -131,8 +131,8 @@ namespace universe {
         }
     }
 
-    template<class K, class V, bool sync, uint shift, uint ratio, bool offset>
-     short &map<K, V, sync, shift, ratio, offset>::get2(K key) {
+    template<class K, class V, bool sync, uint shift, uint memory_opt, uint ratio, bool offset>
+     short &map<K, V, sync, shift, memory_opt, ratio, offset>::get2(K key) {
 
         if (offset)
             return offset_pagemap.get2(key);
@@ -141,8 +141,8 @@ namespace universe {
         }
     }
 
-    template<class K, class V, bool sync, uint shift, uint ratio, bool offset>
-     int &map<K, V, sync, shift, ratio, offset>::get4(K key) {
+    template<class K, class V, bool sync, uint shift, uint memory_opt, uint ratio, bool offset>
+     int &map<K, V, sync, shift, memory_opt, ratio, offset>::get4(K key) {
 
         if (offset)
             return offset_pagemap.get4(key);
@@ -151,8 +151,8 @@ namespace universe {
         }
     }
 
-    template<class K, class V, bool sync, uint shift, uint ratio, bool offset>
-     long long &map<K, V, sync, shift, ratio, offset>::get8(K key) {
+    template<class K, class V, bool sync, uint shift, uint memory_opt, uint ratio, bool offset>
+     long long &map<K, V, sync, shift, memory_opt, ratio, offset>::get8(K key) {
         if (offset)
             return offset_pagemap.get8(key);
         else {
@@ -160,8 +160,8 @@ namespace universe {
         }
     }
 
-    template<class K, class V, bool sync, uint shift, uint ratio, bool offset>
-    V &map<K, V, sync, shift, ratio, offset>::getOrDefault(K key, V def) {
+    template<class K, class V, bool sync, uint shift, uint memory_opt, uint ratio, bool offset>
+    V &map<K, V, sync, shift, memory_opt, ratio, offset>::getOrDefault(K key, V def) {
 
         if (offset)
             return offset_pagemap.get(key);
@@ -183,13 +183,13 @@ namespace universe {
         }
     }
 
-    template<class K, class V, bool sync, uint shift, uint ratio, bool offset>
-    V &map<K, V, sync, shift, ratio, offset>::operator[](K k) {
+    template<class K, class V, bool sync, uint shift, uint memory_opt, uint ratio, bool offset>
+    V &map<K, V, sync, shift, memory_opt, ratio, offset>::operator[](K k) {
         return this->get(k);
     }
 
-    template<class K, class V, bool sync, uint shift, uint ratio, bool offset>
-    void map<K, V, sync, shift, ratio, offset>::add_range(K key, V v, size_t size) {
+    template<class K, class V, bool sync, uint shift, uint memory_opt, uint ratio, bool offset>
+    void map<K, V, sync, shift, memory_opt, ratio, offset>::add_range(K key, V v, size_t size) {
 
         if (offset) {
             offset_pagemap.add_range(key, v, size);
@@ -203,8 +203,8 @@ namespace universe {
         }
     }
 
-    template<class K, class V, bool sync, uint shift, uint ratio, bool offset>
-    void map<K, V, sync, shift, ratio, offset>::remove_range(K key, size_t size) {
+    template<class K, class V, bool sync, uint shift, uint memory_opt, uint ratio, bool offset>
+    void map<K, V, sync, shift, memory_opt, ratio, offset>::remove_range(K key, size_t size) {
 
         V v;
         if (offset)
@@ -228,8 +228,8 @@ namespace universe {
         }
     }
 
-    template<class K, class V, bool sync, uint shift, uint ratio, bool offset>
-    void map<K, V, sync, shift, ratio, offset>::cpy_range(K k1, K k2, size_t size) {
+    template<class K, class V, bool sync, uint shift, uint memory_opt, uint ratio, bool offset>
+    void map<K, V, sync, shift, memory_opt, ratio, offset>::cpy_range(K k1, K k2, size_t size) {
 
         if (offset) {
             offset_pagemap.cpy_range(k1, k2, size);
@@ -252,8 +252,8 @@ namespace universe {
         }
     }
 
-    template<class K, class V, bool sync, uint shift, uint ratio, bool offset>
-    void map<K, V, sync, shift, ratio, offset>::move_range(K k1, K k2, size_t size) {
+    template<class K, class V, bool sync, uint shift, uint memory_opt, uint ratio, bool offset>
+    void map<K, V, sync, shift, memory_opt, ratio, offset>::move_range(K k1, K k2, size_t size) {
 
         if (offset) {
             offset_pagemap.move_range(k1, k2, size);
@@ -276,8 +276,8 @@ namespace universe {
         }
     }
 
-    template<class K, class V, bool sync, uint shift, uint ratio, bool offset>
-    V map<K, V, sync, shift, ratio, offset>::or_range(K key, size_t size) {
+    template<class K, class V, bool sync, uint shift, uint memory_opt, uint ratio, bool offset>
+    V map<K, V, sync, shift, memory_opt, ratio, offset>::or_range(K key, size_t size) {
 
         if (offset) {
             return offset_pagemap.or_range(key, size);
@@ -301,8 +301,8 @@ namespace universe {
         }
     }
 
-    template<class K, class V, bool sync, uint shift, uint ratio, bool offset>
-    void map<K, V, sync, shift, ratio, offset>::remove_range(void *st, size_t size, uint off, uint unit_size) {
+    template<class K, class V, bool sync, uint shift, uint memory_opt, uint ratio, bool offset>
+    void map<K, V, sync, shift, memory_opt, ratio, offset>::remove_range(void *st, size_t size, uint off, uint unit_size) {
         size_t shif = 1<<shift;
         for (uint i = 0; i < (size + shif - 1) / shif; i++) {
             if (this->test((u_int64_t) st + i * shif))
@@ -312,8 +312,8 @@ namespace universe {
         }
     }
 
-    template<class K, class V, bool sync, uint shift, uint ratio, bool offset>
-    void map<K, V, sync, shift, ratio, offset>::add_range(void *st, ull v, size_t size, uint off, uint unit_size) {
+    template<class K, class V, bool sync, uint shift, uint memory_opt, uint ratio, bool offset>
+    void map<K, V, sync, shift, memory_opt, ratio, offset>::add_range(void *st, ull v, size_t size, uint off, uint unit_size) {
         size_t shif = 1<<shift;
         for (uint i = 0; i < (size + shif - 1) / shif; i++) {
             memset((char *) (&this->get((u_int64_t) st + i * shif)) + off, v, unit_size);
@@ -740,13 +740,13 @@ namespace bottom {
 }
 
 namespace rt_lib {
-    template<class K, class V, bool uni, bool sync, int shift>
-    map<K, V, uni, sync, shift>::map() {
+    template<class K, class V, bool uni, bool sync, int shift, int memory_opt>
+    map<K, V, uni, sync, shift, memory_opt>::map() {
     }
 
 
-    template<class K, class V, bool uni, bool sync, int shift>
-    bool map<K, V, uni, sync, shift>::find(K k) {
+    template<class K, class V, bool uni, bool sync, int shift, int memory_opt>
+    bool map<K, V, uni, sync, shift, memory_opt>::find(K k) {
         if (uni) {
             return universe_map.find(k);
         } else {
@@ -754,8 +754,8 @@ namespace rt_lib {
         }
     }
 
-    template<class K, class V, bool uni, bool sync, int shift>
-    unsigned long map<K, V, uni, sync, shift>::size() {
+    template<class K, class V, bool uni, bool sync, int shift, int memory_opt>
+    unsigned long map<K, V, uni, sync, shift, memory_opt>::size() {
         if (uni) {
             return universe_map.size();
         } else {
@@ -763,8 +763,8 @@ namespace rt_lib {
         }
     }
 
-    template<class K, class V, bool uni, bool sync, int shift>
-    V &map<K, V, uni, sync, shift>::get(K k) {
+    template<class K, class V, bool uni, bool sync, int shift, int memory_opt>
+    V &map<K, V, uni, sync, shift, memory_opt>::get(K k) {
         if (uni) {
             return universe_map.get(k);
         } else {
@@ -772,8 +772,8 @@ namespace rt_lib {
         }
     }
 
-    template<class K, class V, bool uni, bool sync, int shift>
-    ull map<K, V, uni, sync, shift>::get(K k, size_t size) {
+    template<class K, class V, bool uni, bool sync, int shift, int memory_opt>
+    ull map<K, V, uni, sync, shift, memory_opt>::get(K k, size_t size) {
         if (uni) {
             return universe_map.get(k, size);
         } else {
@@ -781,8 +781,8 @@ namespace rt_lib {
         }
     }
 
-    template<class K, class V, bool uni, bool sync, int shift>
-    void map<K, V, uni, sync, shift>::set(K k,  ull v, size_t size) {
+    template<class K, class V, bool uni, bool sync, int shift, int memory_opt>
+    void map<K, V, uni, sync, shift, memory_opt>::set(K k,  ull v, size_t size) {
         if (uni) {
             universe_map.set(k,v,size);
         } else {
@@ -790,8 +790,8 @@ namespace rt_lib {
         }
     }
 
-    template<class K, class V, bool uni, bool sync, int shift>
-    unsigned char &map<K, V, uni, sync, shift>::get1(K k) {
+    template<class K, class V, bool uni, bool sync, int shift, int memory_opt>
+    unsigned char &map<K, V, uni, sync, shift, memory_opt>::get1(K k) {
         if (uni) {
             return universe_map.get1(k);
         } else {
@@ -799,8 +799,8 @@ namespace rt_lib {
         }
     }
 
-    template<class K, class V, bool uni, bool sync, int shift>
-    unsigned short &map<K, V, uni, sync, shift>::get2(K k) {
+    template<class K, class V, bool uni, bool sync, int shift, int memory_opt>
+    unsigned short &map<K, V, uni, sync, shift, memory_opt>::get2(K k) {
         if (uni) {
             return universe_map.get2(k);
         } else {
@@ -808,8 +808,8 @@ namespace rt_lib {
         }
     }
 
-    template<class K, class V, bool uni, bool sync, int shift>
-    unsigned int &map<K, V, uni, sync, shift>::get4(K k) {
+    template<class K, class V, bool uni, bool sync, int shift, int memory_opt>
+    unsigned int &map<K, V, uni, sync, shift, memory_opt>::get4(K k) {
         if (uni) {
             return universe_map.get4(k);
         } else {
@@ -817,8 +817,8 @@ namespace rt_lib {
         }
     }
 
-    template<class K, class V, bool uni, bool sync, int shift>
-    unsigned long long &map<K, V, uni, sync, shift>::get8(K k) {
+    template<class K, class V, bool uni, bool sync, int shift, int memory_opt>
+    unsigned long long &map<K, V, uni, sync, shift, memory_opt>::get8(K k) {
         if (uni) {
             return universe_map.get8(k);
         } else {
@@ -826,13 +826,13 @@ namespace rt_lib {
         }
     }
 
-    template<class K, class V, bool uni, bool sync, int shift>
-    V &map<K, V, uni, sync, shift>::operator[](K k) {
+    template<class K, class V, bool uni, bool sync, int shift, int memory_opt>
+    V &map<K, V, uni, sync, shift, memory_opt>::operator[](K k) {
         return this->get(k);
     }
 
-    template<class K, class V, bool uni, bool sync, int shift>
-    void map<K, V, uni, sync, shift>::remove(K k) {
+    template<class K, class V, bool uni, bool sync, int shift, int memory_opt>
+    void map<K, V, uni, sync, shift, memory_opt>::remove(K k) {
         if (uni) {
             throw "Universe map doesn't support remove";
         } else {
@@ -840,8 +840,8 @@ namespace rt_lib {
         }
     }
 
-    template<class K, class V, bool uni, bool sync, int shift>
-    void map<K, V, uni, sync, shift>::remove_range(K k, size_t size) {
+    template<class K, class V, bool uni, bool sync, int shift, int memory_opt>
+    void map<K, V, uni, sync, shift, memory_opt>::remove_range(K k, size_t size) {
         if (uni) {
             universe_map.remove_range(k, size);
         } else {
@@ -849,8 +849,8 @@ namespace rt_lib {
         }
     }
 
-    template<class K, class V, bool uni, bool sync, int shift>
-    void map<K, V, uni, sync, shift>::add_range(K k, V v, size_t size) {
+    template<class K, class V, bool uni, bool sync, int shift, int memory_opt>
+    void map<K, V, uni, sync, shift, memory_opt>::add_range(K k, V v, size_t size) {
         if (uni) {
             this->universe_map.add_range(k, v, size);
         } else {
@@ -858,8 +858,8 @@ namespace rt_lib {
         }
     }
 
-    template<class K, class V, bool uni, bool sync, int shift>
-    bool map<K, V, uni, sync, shift>::check_range(K k, size_t size, V v) {
+    template<class K, class V, bool uni, bool sync, int shift, int memory_opt>
+    bool map<K, V, uni, sync, shift, memory_opt>::check_range(K k, size_t size, V v) {
         for (int i = 0; i < size; i++) {
             K kk = (K) ((int *) k + i);
             if (this->get(kk) != v)
@@ -868,56 +868,56 @@ namespace rt_lib {
         return true;
     }
 
-    template<class K, class V, bool uni, bool sync, int shift>
-    V &map<K, V, uni, sync, shift>::getOrDefault(K k, V def) {
+    template<class K, class V, bool uni, bool sync, int shift, int memory_opt>
+    V &map<K, V, uni, sync, shift, memory_opt>::getOrDefault(K k, V def) {
         if (uni)
             return universe_map.getOrDefault(k, def);
         else
             return def;
     }
 
-    template<class K, class V, bool uni, bool sync, int shift>
-    void map<K, V, uni, sync, shift>::cpy_range(K k1, K k2, size_t size) {
+    template<class K, class V, bool uni, bool sync, int shift, int memory_opt>
+    void map<K, V, uni, sync, shift, memory_opt>::cpy_range(K k1, K k2, size_t size) {
         if (uni) {
             universe_map.cpy_range(k1, k2, size);
         } else
             throw "Bottom Map doesn't  support";
     }
 
-    template<class K, class V, bool uni, bool sync, int shift>
-    void map<K, V, uni, sync, shift>::move_range(K k1, K k2, size_t size) {
+    template<class K, class V, bool uni, bool sync, int shift, int memory_opt>
+    void map<K, V, uni, sync, shift, memory_opt>::move_range(K k1, K k2, size_t size) {
         if (uni) {
             universe_map.move_range(k1, k2, size);
         } else
             throw "Bottom Map doesn't  support";
     }
 
-    template<class K, class V, bool uni, bool sync, int shift>
-    V map<K, V, uni, sync, shift>::or_range(K k, size_t size) {
+    template<class K, class V, bool uni, bool sync, int shift, int memory_opt>
+    V map<K, V, uni, sync, shift, memory_opt>::or_range(K k, size_t size) {
         if (uni) {
             return universe_map.or_range(k, size);
         } else
             throw "Bottom Map doesn't  support";
     }
 
-    template<class K, class V, bool uni, bool sync, int shift>
-    void map<K, V, uni, sync, shift>::remove_range(void *k, size_t size, uint offset, uint unit_size) {
+    template<class K, class V, bool uni, bool sync, int shift, int memory_opt>
+    void map<K, V, uni, sync, shift, memory_opt>::remove_range(void *k, size_t size, uint offset, uint unit_size) {
         if (uni) {
             universe_map.remove_range(k, size, offset, unit_size);
         } else
             throw "Bottom map not support";
     }
 
-    template<class K, class V, bool uni, bool sync, int shift>
-    void map<K, V, uni, sync, shift>::add_range(void *k, ull v, size_t size, uint offset, uint unit_size) {
+    template<class K, class V, bool uni, bool sync, int shift, int memory_opt>
+    void map<K, V, uni, sync, shift, memory_opt>::add_range(void *k, ull v, size_t size, uint offset, uint unit_size) {
         if (uni) {
             universe_map.add_range(k, v, size, offset, unit_size);
         } else
             throw "Bottom map not support";
     }
 
-    template<class K, class V, bool uni, bool sync, int shift>
-    bool map<K, V, uni, sync, shift>::check_range(void *k, size_t size, u_char v, uint off, uint unit_size) {
+    template<class K, class V, bool uni, bool sync, int shift, int memory_opt>
+    bool map<K, V, uni, sync, shift, memory_opt>::check_range(void *k, size_t size, u_char v, uint off, uint unit_size) {
         size_t shif = 1<<shift;
         for (int i = 0; i < (size + shif - 1) / shif; i++) {
             u_char *p = (u_char *) (&this->get((void*)((u_int64_t) k + i * shif)));

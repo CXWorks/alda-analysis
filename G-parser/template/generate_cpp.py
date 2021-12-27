@@ -4,6 +4,9 @@ import fire
 import json
 import copy
 from Cheetah.Template import Template
+
+memory_opt = True
+
 def rreplace(s, old, new, occurrence):
     li = s.rsplit(old, occurrence)
     return new.join(li)
@@ -40,9 +43,15 @@ class cxx_generator(object):
             if ('size' in unit['key']):
                 return '{}::array_map<{}, {}, {}>'.format('rt_lib', self.get_cpp_type(unit['key']),
                                                           self.get_cpp_type(unit['value']), unit['key']['size'])
-            return '{}::map<{}, {}, {}, {}, {}>'.format('rt_lib', self.get_cpp_type(unit['key'], True),
+            if not memory_opt:
+                return '{}::map<{}, {}, {}, {}, {}>'.format('rt_lib', self.get_cpp_type(unit['key'], True),
                                                         self.get_cpp_type(unit['value']),
                                                         str(unit['scope'] == 'universe').lower(), self.sync, self.shift)
+            else:
+                return '{}::map<{}, {}, {}, {}, {}, {}>'.format('rt_lib', self.get_cpp_type(unit['key'], True),
+                                                            self.get_cpp_type(unit['value']),
+                                                            str(unit['scope'] == 'universe').lower(), self.sync,
+                                                                self.shift, self.shift)
         elif unit['type'] == 'clazz':
             return unit['clazz_name']
 
@@ -229,7 +238,9 @@ class cxx_generator(object):
     def to_tydef(self, unit):
         return 'typedef {} {};'.format(self.get_cpp_type(unit), unit['scalar'])
 
-    def gen_cxx_cpp(self, instr, tlp):
+    def gen_cxx_cpp(self, instr, tlp, memory_optimize = True):
+        global memory_opt
+        memory_opt = memory_optimize
         self.tid = []
         with open(instr, 'r') as f:
             cxx_json = json.load(f)

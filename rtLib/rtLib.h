@@ -41,12 +41,12 @@ namespace universe {
     constexpr uint lsh(uint l1, uint l2){
         return l1 << l2;
     }
-    template<class K, class V, bool sync = false, uint shift = 0, uint ratio = sizeof(V),
+    template<class K, class V, bool sync = false, uint shift = 0, uint memory_opt = 0, uint ratio = sizeof(V),
             bool offset = (ratio <= 3)>
     class map {
     private:
-        sync_p::PageMap<sync_p::PageSizes<20, 16, 12 - shift>, K, V> sync_pagemap;
-        unsync::PageMap<unsync::PageSizes<20, 16, 12 - shift>, K, V> unsync_pagemap;
+        sync_p::PageMap<sync_p::PageSizes<20, 16, 12 - memory_opt>, K, V> sync_pagemap;
+        unsync::PageMap<unsync::PageSizes<20, 16, 12 - memory_opt>, K, V> unsync_pagemap;
         offset::PageMap<K, V, shift, ratio> offset_pagemap;
     public:
         static void init() {
@@ -247,10 +247,10 @@ namespace bottom {
 }
 
 namespace rt_lib {
-    template<class K, class V, bool uni = false, bool sync = false, int shift = 0>
+    template<class K, class V, bool uni = false, bool sync = false, int shift = 0, int memory_opt = 0>
     class map {
     private:
-        universe::map<K, V, sync, shift> universe_map;
+        universe::map<K, V, sync, shift, memory_opt> universe_map;
         bottom::map<K, V, sync> bottom_map;
     public:
         static void init() {
