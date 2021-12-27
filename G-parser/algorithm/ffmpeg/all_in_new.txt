@@ -158,7 +158,7 @@ C[f][f]++;
 }
 
 onWrite(address addr, size si) {
-    alda_assert(addr2Label.check_range(addr, si, 0), 0);
+    alda_assert(addr2Label.check_range(addr, si, -1), 0);
 }
 
 onRead(address addr, size si) {
