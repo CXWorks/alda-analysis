@@ -33,8 +33,8 @@ label onGetElement(label l1, label l2, label l3, label l4, label l5, label l6, l
 insert after CastInst call onCast($1.m)
 insert after BinaryOperator call onBinaryOp($1.m, $2.m)
 insert after func scanf call onRead($1)
-insert before LoadInst call onLoad($1,sizeof($r))
-insert before StoreInst call onStore($2,$1.m,sizeof($1))
+insert before LoadInst call onLoad($1)
+insert before StoreInst call onStore($2,$1.m)
 insert after func printf call onWrite($p.m)
 insert after GetElementPtrInst call onGetElement($p.m)
 
