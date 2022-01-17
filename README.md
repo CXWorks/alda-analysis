@@ -8,18 +8,18 @@ This project implements a DSL parser & runtime library for dynamic analysis name
 
 ## Artifact Evaluation
 
-+ Virtual Machine: [DOI](https://doi.org/10.5281/zenodo.5748339). Username: **anony** Password: **password**
-+ Document: [pdf](AE.pdf)
++ Virtual Machine: [DOI](https://doi.org/10.5281/zenodo.5748338). Username: **anony** Password: **password**
++ Document: [AE](AE.pdf)
 
 ## Project Structures
 
-+ G-parser: The project for parsing DSL & generate analysis cpp code
++ G-parser: The project for parsing DSL & generate analysis c++ code
 + rtLib: The runtime library for built-in data structures
 + pass: The LLVM opt pass to do instrumentation
 
 ## Environment Requirements
 
-+ LLVM 6.0 (If you are using other version, you might need to make slight changes on [CMakeLists.txt](eraser/CMakeLists.txt))
++ LLVM 6.0 (If you are using newer version, you might need to make slight changes on [CMakeLists.txt](eraser/CMakeLists.txt))
 + flex & bison
 + [C++ boost library](https://www.boost.org/)
 + Python 3.5+
@@ -30,19 +30,10 @@ This project implements a DSL parser & runtime library for dynamic analysis name
 
 ## Steps to Run 
 
-1. Build your analysis(e.g. memory sanitizer):
++ Please check artifact evaluation document: [AE](AE.pdf)
 
-        ./auto_run.sh ./msan 0
+## Full Syntax
 
-2. Link analysis with your target program
++ Please check the full syntax here: [Syntax](ALDA_Full_Syntax.pdf)
 
-        llvm-link target.bc rtLib.bc -o combined.bc
 
-3. Do instrumentation
-
-        # Replace the files with their absolute path
-        opt -load eraser.so -eraser combined.bc -o inst.bc
-
-4. Link the executable
-
-        clang++ -O2 inst.bc -lpthread
