@@ -114,11 +114,6 @@ public:
             if (callInst->getCalledFunction()!= nullptr){
                 return callInst->getCalledFunction()->getName();
             }else {
-
-                Value* v = callInst->getCaller();
-                    if(auto fcn = dyn_cast<Function>(v->stripPointerCasts())){
-                        return fcn->getName();
-                    }
                 return "";
             }
         }
