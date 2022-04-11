@@ -2,7 +2,6 @@
 #include <iostream>
 #include <cassert>
 #include <unordered_set>
-#include "llvm/Support/raw_ostream.h"
 #include "llvm/Bitcode/BitcodeReader.h"
 #include "llvm/Bitcode/BitcodeWriter.h"
 #include "llvm/IR/Function.h"
@@ -47,7 +46,6 @@ protected:
     "llvm.sinh", "llvm.tanh", "llvm.exp", "llvm.frexp", "llvm.idexp", "llvm.log", "llvm.log10", "llvm.modf", "llvm.pow",
      "llvm.sqrt", "llvm.ceil", "llvm.fabs", "llvm.floor", "llvm.fmod"};
     map<string, int> tt_func;
-    raw_os_ostream rawOstream;
     Function* initEraser;
     Function* destoryEraser;
     Function* paramStack;
@@ -69,7 +67,7 @@ Function* $v;
 
     bool is_tt_func(StringRef s) {
         for(auto it = tt_func.begin(); it != tt_func.end(); it++){
-            if (s.contains_lower(it->first)){
+            if (s.contains(it->first)){
                 return true;
             }
         }
@@ -106,7 +104,7 @@ public:
     vector<CallInst*> to_be_inline;
     map<StringRef, AllocaInst*> func_va_tls;
 
-    EraserFunctionInstr() : rawOstream(cout), FunctionPass(ID) {
+    EraserFunctionInstr() : FunctionPass(ID) {
         for (string s:math_funcs){
             tt_func[s] = 1;
         }
@@ -117,7 +115,7 @@ public:
                 return callInst->getCalledFunction()->getName();
             }else {
 
-                Value* v = callInst->getCalledValue();
+                Value* v = callInst->getCaller();
                     if(auto fcn = dyn_cast<Function>(v->stripPointerCasts())){
                         return fcn->getName();
                     }
@@ -210,7 +208,7 @@ public:
             SmallVector<Value*, 1> v;
             v.push_back(ConstantInt::get(IntegerType::get(*context, 32), i));
             GetElementPtrInst* loc = GetElementPtrInst::CreateInBounds(callParam, v,"", callRet);
-            LoadInst* loadInst = new LoadInst(loc, "", callRet);
+            LoadInst* loadInst = new LoadInst(loc->getType()->getPointerElementType(), loc, "", callRet);
             param_meta.push_back(loadInst);
         }
         param_map[F.getName()] = param_meta;
@@ -241,9 +239,9 @@ public:
             local_func_call_meta[callInst] = v;
             LoadInst* loadInst = nullptr;
             if(callInst->getNextNode()!= nullptr)
-                loadInst = new LoadInst(callRet, "", callInst->getNextNode());
+                loadInst = new LoadInst(callRet->getType()->getPointerElementType(), callRet, "", callInst->getNextNode());
             else
-                loadInst = new LoadInst(callRet, "", callInst->getParent());
+                loadInst = new LoadInst(callRet->getType()->getPointerElementType(), callRet, "", callInst->getParent());
             local_func_call_result_meta[callInst] = loadInst;
             if(callInst->getFunctionType()->isFunctionVarArg()){
                 Constant *OverflowSize =
@@ -256,13 +254,13 @@ public:
         //va arg, function site
         if(F.isVarArg()){
             IRBuilder<> irb(&p);
-            LoadInst* vasize = new LoadInst(callVASize, "", &p);
-            AllocaInst* allocaInst = new AllocaInst(get_meta_data_type(), 0, vasize, 8,"",&p);
+            LoadInst* vasize = new LoadInst(callVASize->getType()->getPointerElementType(), callVASize, "", &p);
+            AllocaInst* allocaInst = new AllocaInst(get_meta_data_type(), 0, vasize,  Align(8), "",&p);
             SmallVector<Value*, 1> v;
             v.push_back(ConstantInt::get(IntegerType::get(*context, 32), F.getFunctionType()->getNumParams()));
             GetElementPtrInst* loc = GetElementPtrInst::CreateInBounds(callParam, v,"", &p);
             Value* size = irb.CreateMul(vasize, ConstantInt::get(IntegerType::get(*context, 64), sizeof($meta['return_type'])));
-            irb.CreateMemCpy(allocaInst, loc, size,8);
+            irb.CreateMemCpy(allocaInst, MaybeAlign(8), loc, MaybeAlign(8), size);
             func_va_tls[F.getName()] = allocaInst;
         }
         //
@@ -343,7 +341,7 @@ public:
         }
         for(CallInst* call : to_be_inline){
             InlineFunctionInfo ifi;
-            InlineFunction(call, ifi);
+            InlineFunction((CallBase &) (*(CallBase *) call), ifi);
         }
         to_be_inline.clear();
         if(F.getName().equals("main")){
@@ -436,7 +434,7 @@ public:
                 SmallVector<Value*, 1> byval_arg;
                 byval_arg.push_back(ConstantInt::get(IntegerType::get(*context, 32), byval_counter++));
                 GetElementPtrInst* byval_loc = GetElementPtrInst::CreateInBounds(byvalPoint, byval_arg,"", point);
-                LoadInst* loadInst = new LoadInst(byval_loc, "", point);
+                LoadInst* loadInst = new LoadInst(byval_loc->getType()->getPointerElementType(), byval_loc, "", point);
                 Value* casted = CastInst::CreateBitOrPointerCast(it, $f['function']['name']->getFunctionType()->getFunctionParamType(0), "", point);
                 Value* casted2 = CastInst::CreateBitOrPointerCast(loadInst, $f['function']['name']->getFunctionType()->getFunctionParamType(1), "", point);
                 SmallVector<Value*, 3> memcpy_args;
@@ -839,7 +837,7 @@ public:
                         }else if($f['function']['name']->getFunctionType()->getFunctionParamType(num)->isIntegerTy()){
                             Value* casted = nullptr;
                             if("$param['type']" == "threadid"){
-                                LoadInst* loadpid = new LoadInst(arg_$param['idx'], "", point);
+                                LoadInst* loadpid = new LoadInst(arg_$param['idx']->getType()->getPointerElementType(), arg_$param['idx'], "", point);
                                 casted = CastInst::CreateIntegerCast(loadpid, $f['function']['name']->getFunctionType()->getFunctionParamType(num), true, "", point);
                             }else{
                                 casted = CastInst::CreateBitOrPointerCast(arg_$param['idx'], $f['function']['name']->getFunctionType()->getFunctionParamType(num), "", point);
@@ -902,7 +900,7 @@ public:
                             }else if($f['function']['name']->getFunctionType()->getFunctionParamType(num)->isIntegerTy()){
                                 Value* casted = nullptr;
                                 if("$param['type']" == "threadid"){
-                                    LoadInst* loadpid = new LoadInst(arg_$param['idx'], "", point);
+                                    LoadInst* loadpid = new LoadInst(arg_$param['idx']->getType()->getPointerElementType(), arg_$param['idx'], "", point);
                                     casted = CastInst::CreateIntegerCast(loadpid, $f['function']['name']->getFunctionType()->getFunctionParamType(num), true, "", point);
                                 }else{
                                     casted = CastInst::CreateBitOrPointerCast(arg_$param['idx'], $f['function']['name']->getFunctionType()->getFunctionParamType(num), "", point);
@@ -980,7 +978,7 @@ public:
 
                     Value* casted = nullptr;
                     if("$param['type']" == "threadid"){
-                        LoadInst* loadpid = new LoadInst(arg_$param['idx']$param['unqi'], "", point);
+                        LoadInst* loadpid = new LoadInst(arg_$param['idx']$param['unqi']->getType()->getPointerElementType(), arg_$param['idx']$param['unqi'], "", point);
                         casted = CastInst::CreateIntegerCast(loadpid, $f['function']['name']->getFunctionType()->getFunctionParamType(num), true, "", point);
                     }else{
                         casted = CastInst::CreateBitOrPointerCast(arg_$param['idx']$param['unqi'], $f['function']['name']->getFunctionType()->getFunctionParamType(num), "", point);

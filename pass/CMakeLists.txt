@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.10)
 project(eraser)
 
-find_package(LLVM 6.0 REQUIRED  PATH /usr/lib/llvm-6.0/)
+find_package(LLVM 13.0.1 REQUIRED  PATH  /usr/lib/llvm-13/)
 message(STATUS "Found LLVM ${LLVM_PACKAGE_VERSION}")
 message(STATUS "Using LLVMConfig.cmake in: ${LLVM_DIR}")
 message(STATUS "LLVM_INCLUDE_DIRS=${LLVM_INCLUDE_DIRS}")
@@ -15,11 +15,5 @@ include(AddLLVM)
 set(CMAKE_CXX_STANDARD 17)
 
 set(eraser opt_gen.cpp)
-if (${LLVM_PACKAGE_VERSION} STREQUAL "10.0.0")
 
-    add_llvm_library(eraser MODULE opt_gen.cpp)
-else ()
-
-
-    add_llvm_loadable_module(eraser opt_gen.cpp)
-endif ()
+add_llvm_library(eraser MODULE opt_gen.cpp)
