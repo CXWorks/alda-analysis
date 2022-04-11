@@ -43,6 +43,7 @@ To rerun the experiments in ALDA paper, please check for following steps to reso
 ### AE Special notes
 
 1. For **ffmpeg**, use `opt -strip` to remove the debug info in the bitcode file, otherwise leading to error.
+2. LLVM-13 fixed clang's OOM bug, so you can enable the auto-inline version of ffmpeg, the expected linking time is around 20 hours :)
 
 + Please check artifact evaluation document: [AE](AE.pdf)
 
